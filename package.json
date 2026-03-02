@@ -56,7 +56,7 @@
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1",
-    "umple-lsp-server": "^0.2.1"
+    "umple-lsp-server": "*"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
