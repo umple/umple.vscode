@@ -5,3 +5,5 @@ node_modules/
 .vscode-test/
 .DS_Store
 CLAUDE.md
+
+test/*

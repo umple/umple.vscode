@@ -4,6 +4,7 @@
   "description": "Language server for the Umple modeling language",
   "version": "0.1.0",
   "publisher": "umple",
+  "icon": "images/icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/umple/umple.vscode"
