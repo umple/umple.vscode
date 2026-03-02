@@ -1,29 +1,25 @@
-# Ship compiled output + assets
+# Whitelist: exclude everything, then explicitly include what we need
+**
+
+# Extension manifest and docs
 !package.json
 !README.md
 !LICENSE
 !language-configuration.json
+
+# Compiled extension code
 !out/**
+
+# Language support files
 !syntaxes/**
+!images/**
+
+# Runtime dependencies (all of node_modules, minus dev bloat)
 !node_modules/**
-
-# Exclude dev files
-.umple-lsp/**
-src/**
-scripts/**
-**/*.ts
-!**/*.d.ts
-tsconfig.json
-tsconfig.tsbuildinfo
-package-lock.json
-.DS_Store
-.gitignore
-CLAUDE.md
-
-# Exclude unnecessary files from node_modules
 node_modules/umple-lsp-server/src/**
+node_modules/**/typescript/**
+node_modules/**/@types/**
+node_modules/**/undici-types/**
 node_modules/**/test/**
 node_modules/**/tests/**
 node_modules/**/.github/**
-node_modules/**/CHANGELOG.md
-node_modules/**/CHANGES.md
