@@ -23,6 +23,45 @@
     "vscode:prepublish": "npm run compile"
   },
   "contributes": {
+    "commands": [
+      {
+        "command": "umple.compile",
+        "title": "Umple: Compile"
+      },
+      {
+        "command": "umple.showDiagram",
+        "title": "Umple: Show UML Diagram"
+      },
+      {
+        "command": "umple.selectLanguage",
+        "title": "Umple: Select Target Language"
+      },
+      {
+        "command": "umple.menu",
+        "title": "Umple",
+        "icon": {
+          "light": "images/icon-light.svg",
+          "dark": "images/icon-dark.svg"
+        }
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "umple.showDiagram",
+        "key": "ctrl+shift+u",
+        "mac": "cmd+shift+u",
+        "when": "editorLangId == umple"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "umple.menu",
+          "when": "editorLangId == umple",
+          "group": "navigation"
+        }
+      ]
+    },
     "configuration": {
       "title": "Umple",
       "properties": {
@@ -30,9 +69,29 @@
           "type": "boolean",
           "default": true,
           "description": "Automatically update umplesync.jar to the latest version on startup."
+        },
+        "umple.generateLanguage": {
+          "type": "string",
+          "default": "Java",
+          "enum": [
+            "Java",
+            "Php",
+            "Ruby",
+            "Python",
+            "Cpp",
+            "RTCpp",
+            "Sql"
+          ],
+          "description": "Target language for Umple code generation."
         }
       }
     },
+    "snippets": [
+      {
+        "language": "umple",
+        "path": "./snippets/umple.json"
+      }
+    ],
     "languages": [
       {
         "id": "umple",
@@ -55,8 +114,9 @@
     ]
   },
   "dependencies": {
-    "vscode-languageclient": "^9.0.1",
-    "umple-lsp-server": "*"
+    "@viz-js/viz": "^3.24.0",
+    "umple-lsp-server": "*",
+    "vscode-languageclient": "^9.0.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

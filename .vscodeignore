@@ -13,6 +13,7 @@
 # Language support files
 !syntaxes/**
 !images/**
+!snippets/**
 
 # Runtime dependencies (all of node_modules, minus dev bloat)
 !node_modules/**

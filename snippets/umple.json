@@ -1,0 +1,63 @@
+{
+  "Class": {
+    "prefix": "class",
+    "body": [
+      "class ${1:ClassName} {",
+      "  ${2:name};",
+      "  $0",
+      "}"
+    ],
+    "description": "Umple class with attributes"
+  },
+  "State Machine": {
+    "prefix": "sm",
+    "body": [
+      "${1:status} {",
+      "  ${2:State1} {",
+      "    ${3:event} -> ${4:State2};",
+      "  }",
+      "  $0",
+      "}"
+    ],
+    "description": "State machine skeleton"
+  },
+  "Association": {
+    "prefix": "assoc",
+    "body": "${1:0..1} ${2:RoleA} -- ${3:*} ${4:RoleB};",
+    "description": "Inline association"
+  },
+  "Inheritance": {
+    "prefix": "isa",
+    "body": "isA ${1:ParentClass};",
+    "description": "Inheritance (isA)"
+  },
+  "Interface": {
+    "prefix": "interface",
+    "body": [
+      "interface ${1:Name} {",
+      "  ${2:void method()};",
+      "  $0",
+      "}"
+    ],
+    "description": "Interface block"
+  },
+  "Trait": {
+    "prefix": "trait",
+    "body": [
+      "trait ${1:Name} {",
+      "  $0",
+      "}"
+    ],
+    "description": "Trait block"
+  },
+  "Enum": {
+    "prefix": "enum",
+    "body": "${1:Status} { ${2:Active}, ${3:Inactive} }",
+    "description": "Enum attribute"
+  },
+  "Use": {
+    "prefix": "use",
+    "body": "use \"${1:file}.ump\";",
+    "description": "Use (import) statement"
+  }
+}
