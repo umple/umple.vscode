@@ -7,7 +7,7 @@ A VS Code extension for the [Umple](https://www.umple.org) modeling language. Pr
 ### Language Intelligence (via LSP)
 
 - **Diagnostics** — Real-time error and warning detection via the Umple compiler
-- **Go-to-definition** — Jump to classes, attributes, state machines, states, and associations
+- **Go-to-definition** — Jump to classes, interfaces, traits, enums, attributes, methods, state machines, states, associations, mixsets, and requirements
 - **Code completion** — Context-aware keyword and symbol suggestions
 - **Syntax highlighting** — Tree-sitter and TextMate grammars for accurate highlighting
 - **Cross-file support** — Transitive `use` statement resolution and cross-file diagnostics
