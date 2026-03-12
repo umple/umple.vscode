@@ -2,6 +2,8 @@
 
 A VS Code extension for the [Umple](https://www.umple.org) modeling language. Provides IDE features for `.ump` files.
 
+As this is updated, versions will be published on the VSCode MarketPlace (there may be a delay in that happening, so you can choose to load it directly as indicated below)
+
 ## Features
 
 ### Language Intelligence (via LSP)
