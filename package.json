@@ -1,5 +1,5 @@
 {
-  "name": "umple-lsp",
+  "name": "umple",
   "displayName": "Umple",
   "description": "Language server for the Umple modeling language",
   "version": "0.2.0",
