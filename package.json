@@ -1,9 +1,9 @@
 {
   "name": "umple-lsp",
-  "displayName": "umple-language-server",
+  "displayName": "Umple",
   "description": "Language server for the Umple modeling language",
-  "version": "0.1.0",
-  "publisher": "umple",
+  "version": "0.2.0",
+  "publisher": "digized",
   "icon": "images/icon.png",
   "repository": {
     "type": "git",
