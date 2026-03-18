@@ -14,6 +14,7 @@ As this is updated, versions will be published on the VSCode MarketPlace (there 
 - **Syntax highlighting** — Tree-sitter and TextMate grammars for accurate highlighting
 - **Cross-file support** — Transitive `use` statement resolution and cross-file diagnostics
 - **Import error reporting** — Errors in imported files shown on the `use` statement line
+- **Runtime bootstrap** — Automatically downloads `umplesync.jar` on activation and offers a one-click recovery download if it is missing later
 
 ### Compile
 

@@ -4,6 +4,7 @@ import * as path from "path";
 import * as crypto from "crypto";
 import * as fs from "fs";
 import * as os from "os";
+import { checkJava } from "../utils/umpleSync";
 
 let panel: vscode.WebviewPanel | undefined;
 let debounceTimer: ReturnType<typeof setTimeout> | undefined;
@@ -24,13 +25,28 @@ async function getViz(): Promise<any> {
 
 export function registerDiagramCommand(
   context: vscode.ExtensionContext,
-  serverDir: string
+  serverDir: string,
+  ensureJarAvailable: (promptMessage: string, passive?: boolean) => Promise<boolean>,
 ): void {
   context.subscriptions.push(
     vscode.commands.registerCommand("umple.showDiagram", async () => {
       const editor = vscode.window.activeTextEditor;
       if (!editor || editor.document.languageId !== "umple") {
         vscode.window.showWarningMessage("Open an Umple file first.");
+        return;
+      }
+
+      if (!checkJava()) {
+        vscode.window.showWarningMessage(
+          "Java 11+ is required to generate Umple diagrams.",
+        );
+        return;
+      }
+
+      const jarReady = await ensureJarAvailable(
+        "Diagram generation requires umplesync.jar, but it is missing. Download it now?",
+      );
+      if (!jarReady) {
         return;
       }
 
@@ -88,8 +104,18 @@ export function registerDiagramCommand(
       if (!panel || doc.languageId !== "umple") return;
       lastFilePath = doc.uri.fsPath;
       if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
-        updateDiagram(doc.uri.fsPath, serverDir);
+      debounceTimer = setTimeout(async () => {
+        if (!checkJava()) {
+          return;
+        }
+        const jarReady = await ensureJarAvailable(
+          "Diagram generation requires umplesync.jar, but it is missing. Download it now?",
+          true,
+        );
+        if (!jarReady) {
+          return;
+        }
+        await updateDiagram(doc.uri.fsPath, serverDir);
       }, 500);
     })
   );

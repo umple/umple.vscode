@@ -6,7 +6,11 @@ import {
   ServerOptions,
   TransportKind,
 } from "vscode-languageclient/node";
-import { checkJava, updateUmpleSyncJar } from "./utils/umpleSync";
+import {
+  checkJava,
+  ensureUmpleSyncJar,
+  updateUmpleSyncJar,
+} from "./utils/umpleSync";
 import { registerCompileCommand } from "./commands/compile";
 import { registerDiagramCommand } from "./commands/diagram";
 
@@ -37,12 +41,12 @@ export async function activate(
   const hasJava = checkJava();
   if (!hasJava) {
     vscode.window.showWarningMessage(
-      "Java not found. Umple diagnostics are disabled. Install Java 11+ and restart VS Code to enable them.",
+      "Java not found. Umple diagnostics, compilation, and diagrams are disabled. Install Java 11+ and restart VS Code to enable them.",
     );
-  } else {
-    // Update umplesync.jar if needed (downloads into server package dir)
-    await updateUmpleSyncJar(serverDir);
   }
+
+  // Update umplesync.jar if needed (downloads into server package dir).
+  await updateUmpleSyncJar(serverDir);
 
   const serverModule = require.resolve("umple-lsp-server/out/server.js");
 
@@ -75,9 +79,33 @@ export async function activate(
 
   client.start();
 
+  const restartClientAfterJarDownload = async (): Promise<void> => {
+    if (!client) {
+      return;
+    }
+    try {
+      await client.restart();
+    } catch (error) {
+      console.error("Failed to restart the Umple language client:", error);
+      vscode.window.showWarningMessage(
+        "umplesync.jar was downloaded, but the Umple language server could not be restarted automatically. Reload the VS Code window if diagnostics do not return.",
+      );
+    }
+  };
+
+  const ensureJarAvailable = async (
+    message: string,
+    passive = false,
+  ): Promise<boolean> =>
+    ensureUmpleSyncJar(serverDir, {
+      passive,
+      message,
+      onDownloaded: restartClientAfterJarDownload,
+    });
+
   // Register extension commands
-  registerCompileCommand(context, serverDir);
-  registerDiagramCommand(context, serverDir);
+  registerCompileCommand(context, serverDir, ensureJarAvailable);
+  registerDiagramCommand(context, serverDir, ensureJarAvailable);
 
   // Umple menu button (single entry point in editor title bar)
   context.subscriptions.push(
@@ -145,6 +173,40 @@ export async function activate(
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor(updateVisibility)
   );
+
+  const promptForMissingJarIfNeeded = async (
+    document: vscode.TextDocument | undefined,
+  ): Promise<void> => {
+    if (document?.languageId !== "umple") {
+      return;
+    }
+    await ensureJarAvailable(
+      "Umple diagnostics need umplesync.jar, but it is missing. Download it now?",
+      true,
+    );
+  };
+
+  context.subscriptions.push(
+    vscode.window.onDidChangeActiveTextEditor((editor) => {
+      void promptForMissingJarIfNeeded(editor?.document);
+    }),
+  );
+  context.subscriptions.push(
+    vscode.workspace.onDidOpenTextDocument((document) => {
+      void promptForMissingJarIfNeeded(document);
+    }),
+  );
+
+  if (vscode.window.activeTextEditor?.document.languageId === "umple") {
+    void promptForMissingJarIfNeeded(vscode.window.activeTextEditor.document);
+  } else {
+    const openUmpleDocument = vscode.workspace.textDocuments.find(
+      (document) => document.languageId === "umple",
+    );
+    if (openUmpleDocument) {
+      void promptForMissingJarIfNeeded(openUmpleDocument);
+    }
+  }
 
   // Update status bar when setting changes
   context.subscriptions.push(

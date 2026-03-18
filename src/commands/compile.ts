@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { execFile } from "child_process";
 import * as path from "path";
+import { checkJava } from "../utils/umpleSync";
 
 type UmpleResult = {
   errorCode?: string;
@@ -61,6 +62,7 @@ function formatResult(r: UmpleResult): string {
 export function registerCompileCommand(
   context: vscode.ExtensionContext,
   serverDir: string,
+  ensureJarAvailable: (promptMessage: string, passive?: boolean) => Promise<boolean>,
 ): void {
   const outputChannel = vscode.window.createOutputChannel("Umple");
 
@@ -69,6 +71,20 @@ export function registerCompileCommand(
       const editor = vscode.window.activeTextEditor;
       if (!editor || editor.document.languageId !== "umple") {
         vscode.window.showWarningMessage("Open an Umple file first.");
+        return;
+      }
+
+      if (!checkJava()) {
+        vscode.window.showWarningMessage(
+          "Java 11+ is required to compile Umple models.",
+        );
+        return;
+      }
+
+      const jarReady = await ensureJarAvailable(
+        "Compilation requires umplesync.jar, but it is missing. Download it now?",
+      );
+      if (!jarReady) {
         return;
       }
 
