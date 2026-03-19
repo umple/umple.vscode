@@ -13,6 +13,15 @@ let lastFilePath: string | undefined;
 let lastGoodSvgs: Record<string, string> = {};
 let lastGoodFilePath: string | undefined;
 
+// Single source of truth for layout engine options
+const LAYOUT_ENGINES = [
+  { value: "dot", label: "dot (hierarchical)" },
+  { value: "circo", label: "circo (circular)" },
+  { value: "neato", label: "neato (spring)" },
+  { value: "fdp", label: "fdp (force-directed)" },
+  { value: "osage", label: "osage (clustered)" },
+] as const;
+
 function getNonce(): string {
   return crypto.randomBytes(16).toString("hex");
 }
@@ -64,7 +73,8 @@ export function registerDiagramCommand(
           vscode.ViewColumn.Two,
           { enableScripts: true }
         );
-        panel.webview.html = getWebviewHtml(panel.webview);
+        const currentEngine = vscode.workspace.getConfiguration("umple").get<string>("diagramLayout", "dot");
+        panel.webview.html = getWebviewHtml(panel.webview, currentEngine);
         panel.onDidDispose(() => {
           panel = undefined;
           lastFilePath = undefined;
@@ -72,6 +82,12 @@ export function registerDiagramCommand(
           lastGoodFilePath = undefined;
         });
         panel.webview.onDidReceiveMessage(async (msg) => {
+          if (msg.type === "layoutChange" && msg.engine) {
+            // Persist to settings — onDidChangeConfiguration will handle re-render
+            await vscode.workspace.getConfiguration("umple")
+              .update("diagramLayout", msg.engine, vscode.ConfigurationTarget.Global);
+            return;
+          }
           if (msg.type !== "save") return;
           const defaultName = `${path.basename(lastFilePath || "diagram", ".ump")}_${msg.tab}`;
           if (msg.format === "svg") {
@@ -139,12 +155,22 @@ export function registerDiagramCommand(
     })
   );
 
-  // Re-render when diagram settings change (e.g., layout engine)
+  // Re-render when diagram settings change (e.g., layout engine) + sync dropdown
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (!panel || !lastFilePath) return;
       if (e.affectsConfiguration("umple.diagramLayout")) {
-        updateDiagram(lastFilePath, serverDir);
+        const engine = vscode.workspace.getConfiguration("umple").get<string>("diagramLayout", "dot");
+        panel.webview.postMessage({ type: "setLayout", engine });
+        // Use in-memory content if editor is dirty (preserves live-preview state)
+        const doc = vscode.workspace.textDocuments.find(
+          d => d.uri.fsPath === lastFilePath && d.languageId === "umple"
+        );
+        if (doc?.isDirty) {
+          updateDiagram(lastFilePath!, serverDir, doc.getText());
+        } else {
+          updateDiagram(lastFilePath!, serverDir);
+        }
       }
     })
   );
@@ -247,9 +273,13 @@ function runUmplesync(
   });
 }
 
-function getWebviewHtml(webview: vscode.Webview): string {
+function getWebviewHtml(webview: vscode.Webview, currentEngine: string): string {
   const nonce = getNonce();
   const csp = `default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} data: blob:;`;
+
+  const layoutOptions = LAYOUT_ENGINES.map(e =>
+    `<option value="${e.value}"${e.value === currentEngine ? " selected" : ""}>${e.label}</option>`
+  ).join("\n      ");
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -295,6 +325,15 @@ function getWebviewHtml(webview: vscode.Webview): string {
     background: var(--vscode-tab-inactiveBackground);
     font-size: 12px;
     color: var(--vscode-descriptionForeground);
+  }
+  .toolbar select {
+    background: var(--vscode-dropdown-background);
+    color: var(--vscode-dropdown-foreground);
+    border: 1px solid var(--vscode-dropdown-border);
+    padding: 2px 6px;
+    font-size: 12px;
+    border-radius: 3px;
+    cursor: pointer;
   }
   .toolbar button {
     background: var(--vscode-button-secondaryBackground);
@@ -347,6 +386,10 @@ function getWebviewHtml(webview: vscode.Webview): string {
     <button class="tab" data-tab="feature">Feature</button>
   </div>
   <div class="toolbar">
+    <select id="layout-select" title="Layout engine">
+      ${layoutOptions}
+    </select>
+    <span style="width:12px"></span>
     <button id="zoom-out" title="Zoom out">−</button>
     <span id="zoom-level" class="zoom-level">100%</span>
     <button id="zoom-in" title="Zoom in">+</button>
@@ -386,6 +429,11 @@ function getWebviewHtml(webview: vscode.Webview): string {
       });
       document.getElementById("zoom-level").textContent = Math.round(zoom * 100) + "%";
     }
+
+    // Layout engine dropdown
+    document.getElementById("layout-select").addEventListener("change", (e) => {
+      vscode.postMessage({ type: "layoutChange", engine: e.target.value });
+    });
 
     document.getElementById("zoom-in").addEventListener("click", () => {
       zoom = Math.min(ZOOM_MAX, zoom + ZOOM_STEP);
@@ -441,9 +489,14 @@ function getWebviewHtml(webview: vscode.Webview): string {
       });
     });
 
-    // Receive pre-rendered SVG from extension
+    // Receive messages from extension
     window.addEventListener("message", (event) => {
       const msg = event.data;
+      // Sync layout dropdown when setting changes from outside
+      if (msg.type === "setLayout" && msg.engine) {
+        document.getElementById("layout-select").value = msg.engine;
+        return;
+      }
       if (msg.type !== "svg") return;
       TAB_KEYS.forEach(k => {
         renderSvg("diagram-" + k, msg.svgs[k] || "");
