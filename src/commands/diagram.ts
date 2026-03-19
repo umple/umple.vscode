@@ -121,6 +121,21 @@ export function registerDiagramCommand(
           lastGoodFilePath = undefined;
         });
         panel.webview.onDidReceiveMessage(async (msg) => {
+          if (msg.type === "selectClass" && msg.name && lastFilePath) {
+            const escapedName = msg.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const regex = new RegExp(`^\\s*class\\s+(${escapedName})\\b`, "m");
+            const doc = await vscode.workspace.openTextDocument(lastFilePath);
+            const match = regex.exec(doc.getText());
+            if (match) {
+              const startPos = doc.positionAt(match.index + match[0].indexOf(match[1]));
+              const endPos = doc.positionAt(match.index + match[0].indexOf(match[1]) + match[1].length);
+              await vscode.window.showTextDocument(doc, {
+                selection: new vscode.Range(startPos, endPos),
+                viewColumn: vscode.ViewColumn.One,
+              });
+            }
+            return;
+          }
           if (msg.type === "layoutChange" && msg.engine) {
             // Persist to settings — onDidChangeConfiguration will handle re-render
             await vscode.workspace.getConfiguration("umple")
@@ -229,6 +244,96 @@ export function registerDiagramCommand(
   );
 }
 
+// ── Temp workspace builder: reachable use-closure copy ───────────────────────
+
+const MAX_IMPORTED_FILES = 100;
+const USE_FILE_REGEX = /^\s*use\s+([^"\s;][^;]*?\.ump)\s*;?\s*$/gm;
+
+function extractFileUsePaths(text: string): string[] {
+  const paths: string[] = [];
+  let match;
+  USE_FILE_REGEX.lastIndex = 0;
+  while ((match = USE_FILE_REGEX.exec(text)) !== null) {
+    const p = match[1].trim();
+    if (p && !paths.includes(p)) paths.push(p);
+  }
+  return paths;
+}
+
+function collectReachableUmpFiles(
+  entryFile: string,
+  entryContent?: string,
+): { files: Set<string>; truncated: boolean } {
+  const visited = new Set<string>();
+  const queue: Array<{ file: string; content?: string }> = [
+    { file: path.resolve(entryFile), content: entryContent },
+  ];
+  let truncated = false;
+
+  while (queue.length > 0) {
+    if (visited.size >= MAX_IMPORTED_FILES) { truncated = true; break; }
+    const item = queue.shift()!;
+    const absPath = item.file;
+    if (visited.has(absPath)) continue;
+    visited.add(absPath);
+
+    let text: string;
+    if (item.content !== undefined) {
+      text = item.content;
+    } else {
+      try { text = fs.readFileSync(absPath, "utf8"); } catch { continue; }
+    }
+
+    const usePaths = extractFileUsePaths(text);
+    for (const usePath of usePaths) {
+      const resolved = path.resolve(path.dirname(absPath), usePath);
+      if (!visited.has(resolved) && fs.existsSync(resolved)) {
+        queue.push({ file: resolved });
+      }
+    }
+  }
+  return { files: visited, truncated };
+}
+
+function findCommonAncestor(paths: string[]): string {
+  if (paths.length === 0) return "/";
+  // Use containing directories, not file paths, to ensure result is a directory
+  const dirs = paths.map(p => path.dirname(p));
+  const parts = dirs.map(d => d.split(path.sep));
+  const common: string[] = [];
+  for (let i = 0; i < parts[0].length; i++) {
+    const seg = parts[0][i];
+    if (parts.every(p => p[i] === seg)) common.push(seg);
+    else break;
+  }
+  return common.join(path.sep) || "/";
+}
+
+function materializeTempWorkspace(
+  tmpDir: string,
+  rootFile: string,
+  rootContent: string | undefined,
+  reachableFiles: Set<string>,
+): string {
+  const allPaths = Array.from(reachableFiles);
+  const ancestor = findCommonAncestor(allPaths);
+
+  for (const absFile of allPaths) {
+    const relPath = path.relative(ancestor, absFile);
+    const destPath = path.join(tmpDir, relPath);
+    fs.mkdirSync(path.dirname(destPath), { recursive: true });
+    if (absFile === path.resolve(rootFile) && rootContent !== undefined) {
+      fs.writeFileSync(destPath, rootContent);
+    } else {
+      try { fs.copyFileSync(absFile, destPath); } catch {}
+    }
+  }
+
+  return path.join(tmpDir, path.relative(ancestor, path.resolve(rootFile)));
+}
+
+// ── Diagram types ────────────────────────────────────────────────────────────
+
 type DiagramType = { key: string; label: string; generator: string; format: "dot" | "html" };
 
 const DIAGRAM_TYPES: DiagramType[] = [
@@ -252,22 +357,13 @@ async function updateDiagram(
 
   const jarPath = path.join(serverDir, "umplesync.jar");
 
-  // Run umplesync in a temp directory to avoid .gv files in the user's folder
+  // Build temp workspace with reachable use-closure (handles cross-directory imports)
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "umple-diagram-"));
-  const tmpFile = path.join(tmpDir, path.basename(filePath));
-  if (content !== undefined) {
-    // Write in-memory editor content (live preview without saving)
-    fs.writeFileSync(tmpFile, content);
-    // Copy sibling .ump files for use-statement resolution
-    const sourceDir = path.dirname(filePath);
-    for (const f of fs.readdirSync(sourceDir)) {
-      if (f.endsWith(".ump") && f !== path.basename(filePath)) {
-        try { fs.copyFileSync(path.join(sourceDir, f), path.join(tmpDir, f)); } catch {}
-      }
-    }
-  } else {
-    fs.copyFileSync(filePath, tmpFile);
+  const { files: reachableFiles, truncated } = collectReachableUmpFiles(filePath, content);
+  if (truncated) {
+    console.warn("Diagram: import closure exceeded limit, some imports may be missing");
   }
+  const tmpFile = materializeTempWorkspace(tmpDir, filePath, content, reachableFiles);
 
   try {
     // Parse filter input into -u and -s args
@@ -550,6 +646,18 @@ function getWebviewHtml(webview: vscode.Webview, currentEngine: string): string 
     // Filter input — triggers on Enter/blur (change event), same as UmpleOnline
     document.getElementById("filter-input").addEventListener("change", (e) => {
       vscode.postMessage({ type: "filterChange", filter: e.target.value });
+    });
+
+    // SVG click-to-select: intercept class node clicks in diagrams
+    document.addEventListener("click", function(e) {
+      var anchor = e.target.closest("a");
+      if (!anchor) return;
+      var href = anchor.getAttribute("xlink:href") || anchor.getAttribute("href") || "";
+      var match = href.match(/Action\\.selectClass\\("([^"]+)"\\)/);
+      if (match) {
+        e.preventDefault();
+        vscode.postMessage({ type: "selectClass", name: match[1] });
+      }
     });
 
     document.getElementById("zoom-in").addEventListener("click", () => {
