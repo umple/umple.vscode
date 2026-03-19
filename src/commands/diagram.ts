@@ -176,13 +176,19 @@ export function registerDiagramCommand(
   );
 }
 
-const DIAGRAM_TYPES = [
-  { key: "class", generator: "GvClassDiagram" },
-  { key: "classTrait", generator: "GvClassTraitDiagram" },
-  { key: "er", generator: "GvEntityRelationshipDiagram" },
-  { key: "state", generator: "GvStateDiagram" },
-  { key: "feature", generator: "GvFeatureDiagram" },
-] as const;
+type DiagramType = { key: string; generator: string; format: "dot" | "html" };
+
+const DIAGRAM_TYPES: DiagramType[] = [
+  { key: "class", generator: "GvClassDiagram", format: "dot" },
+  { key: "classTrait", generator: "GvClassTraitDiagram", format: "dot" },
+  { key: "er", generator: "GvEntityRelationshipDiagram", format: "dot" },
+  { key: "state", generator: "GvStateDiagram", format: "dot" },
+  { key: "feature", generator: "GvFeatureDiagram", format: "dot" },
+  { key: "instance", generator: "instanceDiagram", format: "dot" },
+  { key: "stateTables", generator: "StateTables", format: "html" },
+  { key: "eventSequence", generator: "EventSequence", format: "html" },
+  { key: "metrics", generator: "SimpleMetrics", format: "html" },
+];
 
 async function updateDiagram(
   filePath: string,
@@ -211,8 +217,8 @@ async function updateDiagram(
   }
 
   try {
-    const dotResults = await Promise.all(
-      DIAGRAM_TYPES.map((d) => runUmplesync(jarPath, d.generator, tmpFile))
+    const results = await Promise.all(
+      DIAGRAM_TYPES.map((d) => runUmplesync(jarPath, d.generator, tmpFile, d.format === "html"))
     );
 
     // Clear cache if the source file changed
@@ -228,20 +234,34 @@ async function updateDiagram(
 
     for (let i = 0; i < DIAGRAM_TYPES.length; i++) {
       const key = DIAGRAM_TYPES[i].key;
-      const dot = dotResults[i];
-      if (dot) {
-        try {
-          const svg = viz.renderString(dot, { format: "svg", engine });
-          svgs[key] = svg;
-          lastGoodSvgs[key] = svg;
-        } catch {
+      const format = DIAGRAM_TYPES[i].format;
+      const output = results[i];
+
+      if (format === "html") {
+        // HTML-based diagrams: strip <script> tags, send plain HTML
+        if (output) {
+          const html = output.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "");
+          svgs[key] = html;
+          lastGoodSvgs[key] = html;
+        } else {
           svgs[key] = lastGoodSvgs[key] || "";
           anyFailed = true;
         }
       } else {
-        // umplesync returned null — errors prevented diagram generation
-        svgs[key] = lastGoodSvgs[key] || "";
-        anyFailed = true;
+        // Dot-based diagrams: render through Viz.js
+        if (output) {
+          try {
+            const svg = viz.renderString(output, { format: "svg", engine });
+            svgs[key] = svg;
+            lastGoodSvgs[key] = svg;
+          } catch {
+            svgs[key] = lastGoodSvgs[key] || "";
+            anyFailed = true;
+          }
+        } else {
+          svgs[key] = lastGoodSvgs[key] || "";
+          anyFailed = true;
+        }
       }
     }
 
@@ -254,7 +274,8 @@ async function updateDiagram(
 function runUmplesync(
   jarPath: string,
   generate: string,
-  filePath: string
+  filePath: string,
+  expectHtml = false,
 ): Promise<string | null> {
   return new Promise((resolve) => {
     execFile(
@@ -264,8 +285,12 @@ function runUmplesync(
       (error, stdout) => {
         if (error) {
           resolve(null);
+        } else if (expectHtml) {
+          // HTML generators: any non-trivial output is valid
+          const trimmed = stdout?.trim();
+          resolve(trimmed && trimmed !== "null" && trimmed.length > 10 ? trimmed : null);
         } else {
-          // umplesync: diagram (dot) to stdout; "null" on errors
+          // Dot generators: must contain digraph
           resolve(stdout && /^\s*digraph\b/m.test(stdout) ? stdout : null);
         }
       }
@@ -369,6 +394,19 @@ function getWebviewHtml(webview: vscode.Webview, currentEngine: string): string 
     text-align: center;
     padding-top: 40px;
   }
+  .html-diagram-content {
+    background: #fff;
+    color: #1e1e1e;
+    padding: 12px;
+    font-family: sans-serif;
+    font-size: 13px;
+    overflow-x: auto;
+    position: relative;
+    text-align: left;
+  }
+  .html-diagram-content h1 { font-size: 16px; margin: 8px 0; }
+  .html-diagram-content h2 { font-size: 14px; margin: 6px 0; }
+  .html-diagram-content h3 { font-size: 13px; margin: 4px 0; }
   .stale-banner {
     padding: 12px 16px;
     color: var(--vscode-descriptionForeground, #999);
@@ -384,6 +422,10 @@ function getWebviewHtml(webview: vscode.Webview, currentEngine: string): string 
     <button class="tab" data-tab="er">ER</button>
     <button class="tab" data-tab="state">State Machine</button>
     <button class="tab" data-tab="feature">Feature</button>
+    <button class="tab" data-tab="instance">Instance</button>
+    <button class="tab" data-tab="stateTables">State Tables</button>
+    <button class="tab" data-tab="eventSequence">Event Sequence</button>
+    <button class="tab" data-tab="metrics">Metrics</button>
   </div>
   <div class="toolbar">
     <select id="layout-select" title="Layout engine">
@@ -414,6 +456,19 @@ function getWebviewHtml(webview: vscode.Webview, currentEngine: string): string 
   <div id="diagram-feature" class="diagram-container" style="display:none">
     <div class="diagram-wrapper"><div class="loading">Generating diagram...</div></div>
   </div>
+  <div id="diagram-instance" class="diagram-container" style="display:none">
+    <div class="diagram-wrapper"><div class="loading">Generating diagram...</div></div>
+  </div>
+  <div id="diagram-stateTables" class="diagram-container" style="display:none">
+    <div class="diagram-wrapper"><div class="loading">Generating...</div></div>
+  </div>
+  <div id="diagram-eventSequence" class="diagram-container" style="display:none">
+    <div class="diagram-wrapper"><div class="loading">Generating...</div></div>
+  </div>
+  <div id="diagram-metrics" class="diagram-container" style="display:none">
+    <div class="diagram-wrapper"><div class="loading">Generating...</div></div>
+  </div>
+  <div id="offscreen-stage" style="position:absolute;top:0;left:0;visibility:hidden;pointer-events:none;z-index:-1;overflow:hidden;"></div>
 
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
@@ -474,7 +529,8 @@ function getWebviewHtml(webview: vscode.Webview, currentEngine: string): string 
       }
     }, { passive: false });
 
-    const TAB_KEYS = ["class", "classTrait", "er", "state", "feature"];
+    const TAB_KEYS = ["class", "classTrait", "er", "state", "feature", "instance", "stateTables", "eventSequence", "metrics"];
+    const HTML_TABS = new Set(["stateTables", "eventSequence", "metrics"]);
 
     // Tab switching
     document.querySelectorAll(".tab").forEach(tab => {
@@ -486,6 +542,13 @@ function getWebviewHtml(webview: vscode.Webview, currentEngine: string): string 
           document.getElementById("diagram-" + k).style.display =
             k === currentTab ? "" : "none";
         });
+        // Re-run Event Sequence formatter on tab activation (measurements need visible container)
+        if (NEEDS_FORMATTER.has(currentTab)) {
+          requestAnimationFrame(function() {
+            var content = document.querySelector("#diagram-" + currentTab + " .html-diagram-content");
+            if (content) formatEventSequenceGrid(content);
+          });
+        }
       });
     });
 
@@ -499,7 +562,11 @@ function getWebviewHtml(webview: vscode.Webview, currentEngine: string): string 
       }
       if (msg.type !== "svg") return;
       TAB_KEYS.forEach(k => {
-        renderSvg("diagram-" + k, msg.svgs[k] || "");
+        if (HTML_TABS.has(k)) {
+          renderHtml("diagram-" + k, msg.svgs[k] || "");
+        } else {
+          renderSvg("diagram-" + k, msg.svgs[k] || "");
+        }
       });
       // Show/remove stale banner inside each diagram container after the SVG
       document.querySelectorAll(".stale-banner").forEach(el => el.remove());
@@ -529,7 +596,103 @@ function getWebviewHtml(webview: vscode.Webview, currentEngine: string): string 
       updateZoom();
     }
 
-    const TAB_LABELS = { class: "ClassDiagram", classTrait: "ClassTraitDiagram", er: "ERDiagram", state: "StateMachine", feature: "FeatureDiagram" };
+    // Generation guard — prevents stale async callbacks from applying
+    var renderGeneration = {};
+
+    // Scoped, re-entrant Event Sequence layout formatter
+    function formatEventSequenceGrid(container) {
+      var wrappers = container.querySelectorAll(".event-sequence-grid .wrapper");
+      for (var w = 0; w < wrappers.length; w++) {
+        var wrapper = wrappers[w];
+        var columnHeaders = wrapper.querySelectorAll(".column-header");
+        if (!columnHeaders.length) continue;
+
+        var tableBody = wrapper.querySelector(".table-body");
+        var floatingCol = wrapper.querySelector(".floating-col");
+        var innerWrapper = wrapper.querySelector(".inner-wrapper");
+        var actualTable = innerWrapper ? innerWrapper.querySelector("table") : null;
+        if (!tableBody || !floatingCol || !innerWrapper || !actualTable) continue;
+
+        // Clear previous inline styles for clean re-measurement
+        tableBody.style.height = "";
+        innerWrapper.style.width = "";
+        actualTable.style.top = "";
+        actualTable.style.left = "";
+        floatingCol.style.top = "";
+        floatingCol.style.left = "";
+
+        // Measure from clean baseline
+        var longest = 0, last = 0;
+        for (var i = 0; i < columnHeaders.length; i++) {
+          var span = columnHeaders[i].querySelector("div > span");
+          if (!span) continue;
+          if (span.offsetWidth > longest) longest = span.offsetWidth;
+          if (i === columnHeaders.length - 1) last = span.offsetWidth;
+        }
+
+        var spacerHeight = longest * Math.cos(45 * Math.PI / 180);
+        var lastLabelWidth = last * Math.sin(45 * Math.PI / 180);
+
+        tableBody.style.height = (tableBody.offsetHeight + spacerHeight) + "px";
+        innerWrapper.style.width = (floatingCol.offsetWidth + actualTable.offsetWidth + lastLabelWidth) + "px";
+        actualTable.style.top = spacerHeight + "px";
+        floatingCol.style.top = (spacerHeight - 1) + "px";
+        actualTable.style.left = (floatingCol.offsetWidth - 6) + "px";
+        floatingCol.style.left = "0px";
+      }
+    }
+
+    var NEEDS_FORMATTER = new Set(["eventSequence"]);
+
+    function renderHtml(containerId, htmlString) {
+      var container = document.getElementById(containerId);
+      var wrapper = container.querySelector(".diagram-wrapper");
+      if (!htmlString || !htmlString.trim()) {
+        wrapper.innerHTML = '<div class="empty">No content available</div>';
+        return;
+      }
+
+      var htmlContainer = document.createElement("div");
+      htmlContainer.className = "html-diagram-content";
+      htmlContainer.innerHTML = htmlString;
+
+      // Determine the tab key from containerId (e.g., "diagram-eventSequence" -> "eventSequence")
+      var tabKey = containerId.replace("diagram-", "");
+
+      if (NEEDS_FORMATTER.has(tabKey)) {
+        // Use offscreen staging for Event Sequence (needs DOM measurement)
+        var gen = (renderGeneration[containerId] || 0) + 1;
+        renderGeneration[containerId] = gen;
+
+        var stage = document.getElementById("offscreen-stage");
+        // Size stage to match the real target container width
+        var visibleContainer = document.querySelector(".diagram-container:not([style*='display: none'])");
+        var targetWidth = container.clientWidth || (visibleContainer ? visibleContainer.clientWidth : 600);
+        stage.style.width = targetWidth + "px";
+        stage.replaceChildren();
+        stage.appendChild(htmlContainer);
+
+        // Double rAF: first ensures DOM attached, second ensures layout computed
+        requestAnimationFrame(function() {
+          requestAnimationFrame(function() {
+            if (renderGeneration[containerId] !== gen) return; // stale
+            formatEventSequenceGrid(htmlContainer);
+            // Move from staging into the real tab container
+            wrapper.replaceChildren();
+            wrapper.style.transform = "none";
+            wrapper.appendChild(htmlContainer);
+            stage.replaceChildren();
+          });
+        });
+      } else {
+        // Simple HTML tabs (StateTables, Metrics) — direct injection, no staging
+        wrapper.replaceChildren();
+        wrapper.style.transform = "none";
+        wrapper.appendChild(htmlContainer);
+      }
+    }
+
+    const TAB_LABELS = { class: "ClassDiagram", classTrait: "ClassTraitDiagram", er: "ERDiagram", state: "StateMachine", feature: "FeatureDiagram", instance: "InstanceDiagram", stateTables: "StateTables", eventSequence: "EventSequence", metrics: "Metrics" };
 
     document.getElementById("save-svg").addEventListener("click", () => {
       const container = document.getElementById("diagram-" + currentTab);
@@ -593,6 +756,14 @@ function getWebviewHtml(webview: vscode.Webview, currentEngine: string): string 
         if (stroke === 'black') e.setAttribute('stroke', fg);
       });
     }
+
+    // Re-run Event Sequence formatter on panel resize
+    new ResizeObserver(function() {
+      if (NEEDS_FORMATTER.has(currentTab)) {
+        var content = document.querySelector("#diagram-" + currentTab + " .html-diagram-content");
+        if (content) formatEventSequenceGrid(content);
+      }
+    }).observe(document.body);
   </script>
 </body>
 </html>`;
