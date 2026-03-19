@@ -71,7 +71,7 @@ export function registerDiagramCommand(
           "umpleDiagram",
           "Umple Diagram",
           vscode.ViewColumn.Two,
-          { enableScripts: true }
+          { enableScripts: true, retainContextWhenHidden: true }
         );
         const currentEngine = vscode.workspace.getConfiguration("umple").get<string>("diagramLayout", "dot");
         panel.webview.html = getWebviewHtml(panel.webview, currentEngine);
