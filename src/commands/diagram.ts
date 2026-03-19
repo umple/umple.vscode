@@ -549,6 +549,10 @@ function getWebviewHtml(webview: vscode.Webview, currentEngine: string): string 
             if (content) formatEventSequenceGrid(content);
           });
         }
+        // Hide save buttons for HTML tabs (no SVG to export)
+        var isHtml = HTML_TABS.has(currentTab);
+        document.getElementById("save-svg").style.display = isHtml ? "none" : "";
+        document.getElementById("save-png").style.display = isHtml ? "none" : "";
       });
     });
 
