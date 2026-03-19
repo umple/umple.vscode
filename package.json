@@ -30,7 +30,7 @@
       },
       {
         "command": "umple.showDiagram",
-        "title": "Umple: Show UML Diagram"
+        "title": "Umple: Show Diagram"
       },
       {
         "command": "umple.selectLanguage",
@@ -83,6 +83,25 @@
             "Sql"
           ],
           "description": "Target language for Umple code generation."
+        },
+        "umple.diagramLayout": {
+          "type": "string",
+          "default": "dot",
+          "enum": [
+            "dot",
+            "circo",
+            "neato",
+            "fdp",
+            "osage"
+          ],
+          "enumDescriptions": [
+            "Hierarchical/layered layout (default)",
+            "Circular layout",
+            "Spring-model layout",
+            "Force-directed layout",
+            "Clustered/grid layout"
+          ],
+          "description": "Layout engine for diagram rendering."
         }
       }
     },

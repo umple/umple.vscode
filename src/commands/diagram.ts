@@ -10,6 +10,8 @@ let panel: vscode.WebviewPanel | undefined;
 let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 let vizInstance: any = null;
 let lastFilePath: string | undefined;
+let lastGoodSvgs: Record<string, string> = {};
+let lastGoodFilePath: string | undefined;
 
 function getNonce(): string {
   return crypto.randomBytes(16).toString("hex");
@@ -66,6 +68,8 @@ export function registerDiagramCommand(
         panel.onDidDispose(() => {
           panel = undefined;
           lastFilePath = undefined;
+          lastGoodSvgs = {};
+          lastGoodFilePath = undefined;
         });
         panel.webview.onDidReceiveMessage(async (msg) => {
           if (msg.type !== "save") return;
@@ -98,25 +102,50 @@ export function registerDiagramCommand(
     })
   );
 
-  // Re-generate diagram on save
+  // Live-regenerate diagram on edit (debounced, no auto-save — uses temp file)
   context.subscriptions.push(
-    vscode.workspace.onDidSaveTextDocument((doc) => {
-      if (!panel || doc.languageId !== "umple") return;
-      lastFilePath = doc.uri.fsPath;
+    vscode.workspace.onDidChangeTextDocument((e) => {
+      if (!panel || e.document.languageId !== "umple") return;
+      if (e.document.uri.fsPath !== lastFilePath) return;
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(async () => {
-        if (!checkJava()) {
-          return;
-        }
+        if (!checkJava()) return;
         const jarReady = await ensureJarAvailable(
           "Diagram generation requires umplesync.jar, but it is missing. Download it now?",
           true,
         );
-        if (!jarReady) {
-          return;
-        }
+        if (!jarReady) return;
+        // Pass editor content directly — no disk save needed
+        await updateDiagram(e.document.uri.fsPath, serverDir, e.document.getText());
+      }, 1500);
+    })
+  );
+
+  // Also regenerate on save (from disk, covers external changes)
+  context.subscriptions.push(
+    vscode.workspace.onDidSaveTextDocument((doc) => {
+      if (!panel || doc.languageId !== "umple") return;
+      if (doc.uri.fsPath !== lastFilePath) return;
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(async () => {
+        if (!checkJava()) return;
+        const jarReady = await ensureJarAvailable(
+          "Diagram generation requires umplesync.jar, but it is missing. Download it now?",
+          true,
+        );
+        if (!jarReady) return;
         await updateDiagram(doc.uri.fsPath, serverDir);
       }, 500);
+    })
+  );
+
+  // Re-render when diagram settings change (e.g., layout engine)
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (!panel || !lastFilePath) return;
+      if (e.affectsConfiguration("umple.diagramLayout")) {
+        updateDiagram(lastFilePath, serverDir);
+      }
     })
   );
 }
@@ -131,7 +160,8 @@ const DIAGRAM_TYPES = [
 
 async function updateDiagram(
   filePath: string,
-  serverDir: string
+  serverDir: string,
+  content?: string,
 ): Promise<void> {
   if (!panel) return;
 
@@ -140,30 +170,56 @@ async function updateDiagram(
   // Run umplesync in a temp directory to avoid .gv files in the user's folder
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "umple-diagram-"));
   const tmpFile = path.join(tmpDir, path.basename(filePath));
-  fs.copyFileSync(filePath, tmpFile);
+  if (content !== undefined) {
+    // Write in-memory editor content (live preview without saving)
+    fs.writeFileSync(tmpFile, content);
+    // Copy sibling .ump files for use-statement resolution
+    const sourceDir = path.dirname(filePath);
+    for (const f of fs.readdirSync(sourceDir)) {
+      if (f.endsWith(".ump") && f !== path.basename(filePath)) {
+        try { fs.copyFileSync(path.join(sourceDir, f), path.join(tmpDir, f)); } catch {}
+      }
+    }
+  } else {
+    fs.copyFileSync(filePath, tmpFile);
+  }
 
   try {
     const dotResults = await Promise.all(
       DIAGRAM_TYPES.map((d) => runUmplesync(jarPath, d.generator, tmpFile))
     );
 
+    // Clear cache if the source file changed
+    if (filePath !== lastGoodFilePath) {
+      lastGoodSvgs = {};
+      lastGoodFilePath = filePath;
+    }
+
     const viz = await getViz();
+    const engine = vscode.workspace.getConfiguration("umple").get<string>("diagramLayout", "dot");
     const svgs: Record<string, string> = {};
+    let anyFailed = false;
 
     for (let i = 0; i < DIAGRAM_TYPES.length; i++) {
+      const key = DIAGRAM_TYPES[i].key;
       const dot = dotResults[i];
       if (dot) {
         try {
-          svgs[DIAGRAM_TYPES[i].key] = viz.renderString(dot, { format: "svg", engine: "dot" });
+          const svg = viz.renderString(dot, { format: "svg", engine });
+          svgs[key] = svg;
+          lastGoodSvgs[key] = svg;
         } catch {
-          svgs[DIAGRAM_TYPES[i].key] = "";
+          svgs[key] = lastGoodSvgs[key] || "";
+          anyFailed = true;
         }
       } else {
-        svgs[DIAGRAM_TYPES[i].key] = "";
+        // umplesync returned null — errors prevented diagram generation
+        svgs[key] = lastGoodSvgs[key] || "";
+        anyFailed = true;
       }
     }
 
-    panel.webview.postMessage({ type: "svg", svgs });
+    panel.webview.postMessage({ type: "svg", svgs, stale: anyFailed });
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
@@ -183,7 +239,8 @@ function runUmplesync(
         if (error) {
           resolve(null);
         } else {
-          resolve(stdout);
+          // umplesync: diagram (dot) to stdout; "null" on errors
+          resolve(stdout && /^\s*digraph\b/m.test(stdout) ? stdout : null);
         }
       }
     );
@@ -272,8 +329,12 @@ function getWebviewHtml(webview: vscode.Webview): string {
   .empty, .loading {
     text-align: center;
     padding-top: 40px;
-    color: var(--vscode-descriptionForeground);
+  }
+  .stale-banner {
+    padding: 12px 16px;
+    color: var(--vscode-descriptionForeground, #999);
     font-style: italic;
+    font-size: 13px;
   }
 </style>
 </head>
@@ -387,6 +448,17 @@ function getWebviewHtml(webview: vscode.Webview): string {
       TAB_KEYS.forEach(k => {
         renderSvg("diagram-" + k, msg.svgs[k] || "");
       });
+      // Show/remove stale banner inside each diagram container after the SVG
+      document.querySelectorAll(".stale-banner").forEach(el => el.remove());
+      if (msg.stale) {
+        TAB_KEYS.forEach(k => {
+          var container = document.getElementById("diagram-" + k);
+          var banner = document.createElement("div");
+          banner.className = "stale-banner";
+          banner.textContent = "Diagram may be out of date \u2014 current code has errors.";
+          container.appendChild(banner);
+        });
+      }
     });
 
     function renderSvg(containerId, svgString) {

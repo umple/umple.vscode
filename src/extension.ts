@@ -116,7 +116,7 @@ export async function activate(
       const picked = await vscode.window.showQuickPick(
         [
           { label: `$(play) Compile (${lang})`, id: "compile" },
-          { label: "$(type-hierarchy) Show UML Diagram", id: "diagram" },
+          { label: "$(type-hierarchy) Show Diagram", id: "diagram" },
           { label: "$(symbol-enum) Change Target Language", id: "language" },
         ],
         { placeHolder: "Umple" }
