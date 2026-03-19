@@ -176,18 +176,18 @@ export function registerDiagramCommand(
   );
 }
 
-type DiagramType = { key: string; generator: string; format: "dot" | "html" };
+type DiagramType = { key: string; label: string; generator: string; format: "dot" | "html" };
 
 const DIAGRAM_TYPES: DiagramType[] = [
-  { key: "class", generator: "GvClassDiagram", format: "dot" },
-  { key: "classTrait", generator: "GvClassTraitDiagram", format: "dot" },
-  { key: "er", generator: "GvEntityRelationshipDiagram", format: "dot" },
-  { key: "state", generator: "GvStateDiagram", format: "dot" },
-  { key: "feature", generator: "GvFeatureDiagram", format: "dot" },
-  { key: "instance", generator: "instanceDiagram", format: "dot" },
-  { key: "stateTables", generator: "StateTables", format: "html" },
-  { key: "eventSequence", generator: "EventSequence", format: "html" },
-  { key: "metrics", generator: "SimpleMetrics", format: "html" },
+  { key: "class", label: "Class Diagram", generator: "GvClassDiagram", format: "dot" },
+  { key: "classTrait", label: "Class + Trait", generator: "GvClassTraitDiagram", format: "dot" },
+  { key: "er", label: "ER Diagram", generator: "GvEntityRelationshipDiagram", format: "dot" },
+  { key: "state", label: "State Machine", generator: "GvStateDiagram", format: "dot" },
+  { key: "feature", label: "Feature Diagram", generator: "GvFeatureDiagram", format: "dot" },
+  { key: "instance", label: "Instance Diagram", generator: "instanceDiagram", format: "dot" },
+  { key: "stateTables", label: "State Tables", generator: "StateTables", format: "html" },
+  { key: "eventSequence", label: "Event Sequence", generator: "EventSequence", format: "html" },
+  { key: "metrics", label: "Metrics", generator: "SimpleMetrics", format: "html" },
 ];
 
 async function updateDiagram(
@@ -306,6 +306,14 @@ function getWebviewHtml(webview: vscode.Webview, currentEngine: string): string 
     `<option value="${e.value}"${e.value === currentEngine ? " selected" : ""}>${e.label}</option>`
   ).join("\n      ");
 
+  const diagramTypeOptions = DIAGRAM_TYPES.map(d =>
+    `<option value="${d.key}">${d.label}</option>`
+  ).join("\n      ");
+
+  const diagramTypeData = JSON.stringify(DIAGRAM_TYPES.map(d => ({
+    key: d.key, label: d.label, format: d.format,
+  })));
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -327,19 +335,6 @@ function getWebviewHtml(webview: vscode.Webview, currentEngine: string): string 
     display: flex;
     border-bottom: 1px solid var(--vscode-panel-border);
     background: var(--vscode-tab-inactiveBackground);
-  }
-  .tab {
-    padding: 8px 16px;
-    cursor: pointer;
-    border: none;
-    background: transparent;
-    color: var(--vscode-tab-inactiveForeground);
-    font-size: 13px;
-  }
-  .tab.active {
-    background: var(--vscode-tab-activeBackground);
-    color: var(--vscode-tab-activeForeground);
-    border-bottom: 2px solid var(--vscode-focusBorder);
   }
   .toolbar {
     display: flex;
@@ -416,18 +411,11 @@ function getWebviewHtml(webview: vscode.Webview, currentEngine: string): string 
 </style>
 </head>
 <body>
-  <div class="tabs">
-    <button class="tab active" data-tab="class">Class</button>
-    <button class="tab" data-tab="classTrait">Class + Trait</button>
-    <button class="tab" data-tab="er">ER</button>
-    <button class="tab" data-tab="state">State Machine</button>
-    <button class="tab" data-tab="feature">Feature</button>
-    <button class="tab" data-tab="instance">Instance</button>
-    <button class="tab" data-tab="stateTables">State Tables</button>
-    <button class="tab" data-tab="eventSequence">Event Sequence</button>
-    <button class="tab" data-tab="metrics">Metrics</button>
-  </div>
   <div class="toolbar">
+    <select id="diagram-type-select" title="Diagram type">
+      ${diagramTypeOptions}
+    </select>
+    <span style="width:12px"></span>
     <select id="layout-select" title="Layout engine">
       ${layoutOptions}
     </select>
@@ -529,31 +517,33 @@ function getWebviewHtml(webview: vscode.Webview, currentEngine: string): string 
       }
     }, { passive: false });
 
-    const TAB_KEYS = ["class", "classTrait", "er", "state", "feature", "instance", "stateTables", "eventSequence", "metrics"];
-    const HTML_TABS = new Set(["stateTables", "eventSequence", "metrics"]);
+    // Diagram types — generated from DIAGRAM_TYPES on the extension side
+    const DIAGRAM_DATA = ${diagramTypeData};
+    const TAB_KEYS = DIAGRAM_DATA.map(d => d.key);
+    const HTML_TABS = new Set(DIAGRAM_DATA.filter(d => d.format === "html").map(d => d.key));
 
-    // Tab switching
-    document.querySelectorAll(".tab").forEach(tab => {
-      tab.addEventListener("click", () => {
-        document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
-        tab.classList.add("active");
-        currentTab = tab.dataset.tab;
-        TAB_KEYS.forEach(k => {
-          document.getElementById("diagram-" + k).style.display =
-            k === currentTab ? "" : "none";
-        });
-        // Re-run Event Sequence formatter on tab activation (measurements need visible container)
-        if (NEEDS_FORMATTER.has(currentTab)) {
-          requestAnimationFrame(function() {
-            var content = document.querySelector("#diagram-" + currentTab + " .html-diagram-content");
-            if (content) formatEventSequenceGrid(content);
-          });
-        }
-        // Hide save buttons for HTML tabs (no SVG to export)
-        var isHtml = HTML_TABS.has(currentTab);
-        document.getElementById("save-svg").style.display = isHtml ? "none" : "";
-        document.getElementById("save-png").style.display = isHtml ? "none" : "";
+    // Diagram type switching via dropdown
+    function switchDiagramType(newType) {
+      currentTab = newType;
+      TAB_KEYS.forEach(k => {
+        document.getElementById("diagram-" + k).style.display =
+          k === currentTab ? "" : "none";
       });
+      // Re-run Event Sequence formatter on activation
+      if (NEEDS_FORMATTER.has(currentTab)) {
+        requestAnimationFrame(function() {
+          var content = document.querySelector("#diagram-" + currentTab + " .html-diagram-content");
+          if (content) formatEventSequenceGrid(content);
+        });
+      }
+      // Hide save buttons for HTML tabs
+      var isHtml = HTML_TABS.has(currentTab);
+      document.getElementById("save-svg").style.display = isHtml ? "none" : "";
+      document.getElementById("save-png").style.display = isHtml ? "none" : "";
+    }
+
+    document.getElementById("diagram-type-select").addEventListener("change", function(e) {
+      switchDiagramType(e.target.value);
     });
 
     // Receive messages from extension
@@ -696,7 +686,8 @@ function getWebviewHtml(webview: vscode.Webview, currentEngine: string): string 
       }
     }
 
-    const TAB_LABELS = { class: "ClassDiagram", classTrait: "ClassTraitDiagram", er: "ERDiagram", state: "StateMachine", feature: "FeatureDiagram", instance: "InstanceDiagram", stateTables: "StateTables", eventSequence: "EventSequence", metrics: "Metrics" };
+    const TAB_LABELS = {};
+    DIAGRAM_DATA.forEach(function(d) { TAB_LABELS[d.key] = d.label.replace(/\s+/g, ""); });
 
     document.getElementById("save-svg").addEventListener("click", () => {
       const container = document.getElementById("diagram-" + currentTab);
