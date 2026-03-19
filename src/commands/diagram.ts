@@ -331,11 +331,6 @@ function getWebviewHtml(webview: vscode.Webview, currentEngine: string): string 
     display: flex;
     flex-direction: column;
   }
-  .tabs {
-    display: flex;
-    border-bottom: 1px solid var(--vscode-panel-border);
-    background: var(--vscode-tab-inactiveBackground);
-  }
   .toolbar {
     display: flex;
     align-items: center;
