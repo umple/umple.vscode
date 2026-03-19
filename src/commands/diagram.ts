@@ -12,6 +12,45 @@ let vizInstance: any = null;
 let lastFilePath: string | undefined;
 let lastGoodSvgs: Record<string, string> = {};
 let lastGoodFilePath: string | undefined;
+let lastFilter = "*";
+
+// Parse filter input using UmpleOnline tokenization rules (compiler.php:152-209)
+const GV_SUBOPTIONS = new Set([
+  "gvneato", "gvspring", "gvfdp", "gvsfdp", "gvcirco",
+  "gvtwopi", "gvdot", "gvortho", "gvpolyline",
+  "gvdeoverlapscale", "gvdeoverlaportho", "gvdeoverlapprism",
+]);
+
+function parseFilterInput(input: string): { filterDirective: string; suboptions: string[] } {
+  const tokens = input.split(/\s+/).filter(t => t);
+  const filterParts: string[] = [];
+  const suboptions: string[] = [];
+  const mixsets: string[] = [];
+
+  for (const token of tokens) {
+    if (/^\d+$/.test(token)) {
+      filterParts.push(`hops { association ${token}; }`);
+    } else if (token.startsWith("gvseparator=")) {
+      suboptions.push(token);
+    } else if (GV_SUBOPTIONS.has(token)) {
+      suboptions.push(token);
+    } else if (token.startsWith("mixset")) {
+      mixsets.push(`use ${token.slice(6)};`);
+    } else if (token.startsWith("filter")) {
+      filterParts.push(`includeFilter ${token.slice(6)};`);
+    } else if (token.startsWith("gv")) {
+      // unrecognized gv* — ignore
+    } else if (token) {
+      filterParts.push(`include ${token};`);
+    }
+  }
+
+  let directive = mixsets.join(" ");
+  if (filterParts.length > 0) {
+    directive += ` filter { ${filterParts.join(" ")} }`;
+  }
+  return { filterDirective: directive.trim(), suboptions };
+}
 
 // Single source of truth for layout engine options
 const LAYOUT_ENGINES = [
@@ -86,6 +125,20 @@ export function registerDiagramCommand(
             // Persist to settings — onDidChangeConfiguration will handle re-render
             await vscode.workspace.getConfiguration("umple")
               .update("diagramLayout", msg.engine, vscode.ConfigurationTarget.Global);
+            return;
+          }
+          if (msg.type === "filterChange") {
+            lastFilter = msg.filter ?? "*";
+            if (lastFilePath) {
+              const doc = vscode.workspace.textDocuments.find(
+                d => d.uri.fsPath === lastFilePath && d.languageId === "umple"
+              );
+              if (doc?.isDirty) {
+                void updateDiagram(lastFilePath!, serverDir, doc.getText());
+              } else {
+                void updateDiagram(lastFilePath!, serverDir);
+              }
+            }
             return;
           }
           if (msg.type !== "save") return;
@@ -217,8 +270,11 @@ async function updateDiagram(
   }
 
   try {
+    // Parse filter input into -u and -s args
+    const { filterDirective, suboptions } = parseFilterInput(lastFilter);
+
     const results = await Promise.all(
-      DIAGRAM_TYPES.map((d) => runUmplesync(jarPath, d.generator, tmpFile, d.format === "html"))
+      DIAGRAM_TYPES.map((d) => runUmplesync(jarPath, d.generator, tmpFile, d.format === "html", filterDirective, suboptions))
     );
 
     // Clear cache if the source file changed
@@ -276,11 +332,16 @@ function runUmplesync(
   generate: string,
   filePath: string,
   expectHtml = false,
+  filterDirective = "",
+  suboptions: string[] = [],
 ): Promise<string | null> {
   return new Promise((resolve) => {
+    const args = ["-jar", jarPath, "-generate", generate, filePath];
+    if (filterDirective) args.push("-u", filterDirective);
+    for (const sub of suboptions) args.push("-s", sub);
     execFile(
       "java",
-      ["-jar", jarPath, "-generate", generate, filePath],
+      args,
       { timeout: 15000, maxBuffer: 10 * 1024 * 1024 },
       (error, stdout) => {
         if (error) {
@@ -340,6 +401,17 @@ function getWebviewHtml(webview: vscode.Webview, currentEngine: string): string 
     background: var(--vscode-tab-inactiveBackground);
     font-size: 12px;
     color: var(--vscode-descriptionForeground);
+  }
+  .toolbar input[type="text"] {
+    background: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-input-border, #454545);
+    padding: 2px 6px;
+    font-size: 12px;
+    border-radius: 3px;
+  }
+  .toolbar input[type="text"]::placeholder {
+    color: var(--vscode-input-placeholderForeground);
   }
   .toolbar select {
     background: var(--vscode-dropdown-background);
@@ -415,6 +487,8 @@ function getWebviewHtml(webview: vscode.Webview, currentEngine: string): string 
       ${layoutOptions}
     </select>
     <span style="width:12px"></span>
+    <input id="filter-input" type="text" value="*" placeholder="Filter (e.g., Person* ~Order 2)" title="You can choose to display a subset of classes by naming them, separated by spaces.&#10;&#10;You can use glob wildcards to specify patterns matching several classes.&#10;So * matches any number of characters in a class name and ? matches any single character.&#10;&#10;Preceding a pattern with a ~ indicates to skip classes matching the pattern.&#10;&#10;Superclasses of any selected classes will always also appear (even if ~ is used).&#10;&#10;The above is a shortcut for including a filter directive in the code using the notation filter {include Classpattern;}&#10;Filters in the code will take precedence.&#10;&#10;No class pattern starting with 'gv' can be used as these match the suboptions below.&#10;&#10;You can also use an integer such as 1 or 2 to also add classes that are connected by an association 1 or 2 (or any number of) hops away from selected classes.&#10;&#10;You can also widen (or narrow) the spacing of nodes by using an expression like gvseparator=1.7, where 1.0 is the default spacing.&#10;&#10;Press Enter to apply." style="width:180px;" />
+    <span style="width:12px"></span>
     <button id="zoom-out" title="Zoom out">−</button>
     <span id="zoom-level" class="zoom-level">100%</span>
     <button id="zoom-in" title="Zoom in">+</button>
@@ -471,6 +545,11 @@ function getWebviewHtml(webview: vscode.Webview, currentEngine: string): string 
     // Layout engine dropdown
     document.getElementById("layout-select").addEventListener("change", (e) => {
       vscode.postMessage({ type: "layoutChange", engine: e.target.value });
+    });
+
+    // Filter input — triggers on Enter/blur (change event), same as UmpleOnline
+    document.getElementById("filter-input").addEventListener("change", (e) => {
+      vscode.postMessage({ type: "filterChange", filter: e.target.value });
     });
 
     document.getElementById("zoom-in").addEventListener("click", () => {
