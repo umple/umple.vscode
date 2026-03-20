@@ -63,13 +63,13 @@ export function getCurrentVersion(jarPath: string): string | null {
 }
 
 /**
- * Follow redirects and fetch content from an HTTPS URL.
+ * Follow redirects and fetch content from an HTTPS URL with a timeout.
  */
-function httpsGet(url: string): Promise<Buffer> {
+function httpsGet(url: string, timeoutMs = 60000): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    https.get(url, (res) => {
+    const req = https.get(url, { timeout: timeoutMs }, (res) => {
       if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        httpsGet(res.headers.location).then(resolve, reject);
+        httpsGet(res.headers.location, timeoutMs).then(resolve, reject);
         return;
       }
       if (res.statusCode && res.statusCode !== 200) {
@@ -80,7 +80,11 @@ function httpsGet(url: string): Promise<Buffer> {
       res.on("data", (chunk: Buffer) => chunks.push(chunk));
       res.on("end", () => resolve(Buffer.concat(chunks)));
       res.on("error", reject);
-    }).on("error", reject);
+    });
+    req.on("error", reject);
+    req.on("timeout", () => {
+      req.destroy(new Error(`Request timed out after ${timeoutMs}ms`));
+    });
   });
 }
 
@@ -99,20 +103,53 @@ export async function getLatestVersion(): Promise<string | null> {
 }
 
 /**
+ * Download a file using curl (handles proxies, certs better than Node https).
+ */
+function curlDownload(url: string, dest: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    child_process.execFile("curl", ["-fSL", "-o", dest, url], { timeout: 60000 }, (err) => {
+      if (err) { reject(err); } else { resolve(); }
+    });
+  });
+}
+
+/**
+ * Clean up a temp file, ignoring errors if it doesn't exist.
+ */
+function cleanupTempFile(tempPath: string): void {
+  try { fs.unlinkSync(tempPath); } catch { /* ignore */ }
+}
+
+/**
  * Download umplesync.jar from the Umple server, retrying up to 3 times.
+ * Tries curl first (better proxy/cert handling), falls back to Node.js https.
+ * Downloads to a temp file and atomically renames on success to prevent corrupt jars.
  */
 export async function downloadUmpleSyncJar(jarPath: string): Promise<boolean> {
+  const tempPath = jarPath + ".tmp";
   const attempts = 3;
   for (let i = 1; i <= attempts; i++) {
+    // Primary: curl (available on macOS, most Linux, Windows 10+)
+    try {
+      await curlDownload(UMPLESYNC_JAR_URL, tempPath);
+      fs.renameSync(tempPath, jarPath);
+      return true;
+    } catch (curlError) {
+      cleanupTempFile(tempPath);
+      console.error(`Failed to download umplesync.jar via curl (attempt ${i}/${attempts}):`, curlError);
+    }
+    // Fallback: Node.js https (works even if curl is not installed)
     try {
       const buf = await httpsGet(UMPLESYNC_JAR_URL);
-      fs.writeFileSync(jarPath, buf);
+      fs.writeFileSync(tempPath, buf);
+      fs.renameSync(tempPath, jarPath);
       return true;
     } catch (error) {
-      console.error(`Failed to download umplesync.jar (attempt ${i}/${attempts}):`, error);
-      if (i < attempts) {
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-      }
+      cleanupTempFile(tempPath);
+      console.error(`https fallback also failed (attempt ${i}/${attempts}):`, error);
+    }
+    if (i < attempts) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
     }
   }
   return false;
