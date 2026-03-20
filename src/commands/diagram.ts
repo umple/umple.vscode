@@ -143,9 +143,33 @@ export function registerDiagramCommand(
             if (lspClient) {
               const uri = vscode.Uri.file(lastFilePath).toString();
               try {
-                const result = await lspClient.sendRequest<{ uri: string; range: { start: { line: number; character: number }; end: { line: number; character: number } } } | null>(
+                const result = await (lspClient as any).sendRequest(
                   "umple/resolveStateLocation",
                   { uri, className: msg.className, stateMachine: msg.stateMachine, statePath: msg.statePath },
+                );
+                if (result) {
+                  const doc = await vscode.workspace.openTextDocument(vscode.Uri.parse(result.uri));
+                  const startPos = new vscode.Position(result.range.start.line, result.range.start.character);
+                  const endPos = new vscode.Position(result.range.end.line, result.range.end.character);
+                  await vscode.window.showTextDocument(doc, {
+                    selection: new vscode.Range(startPos, endPos),
+                    viewColumn: vscode.ViewColumn.One,
+                  });
+                }
+              } catch {
+                // LSP request failed — no-op
+              }
+            }
+            return;
+          }
+          if (msg.type === "selectTransition" && msg.event && msg.sourcePath && msg.targetPath && lastFilePath) {
+            const lspClient = getLanguageClient();
+            if (lspClient) {
+              const uri = vscode.Uri.file(lastFilePath).toString();
+              try {
+                const result = await (lspClient as any).sendRequest(
+                  "umple/resolveTransitionLocation",
+                  { uri, className: msg.className, stateMachine: msg.stateMachine, event: msg.event, sourcePath: msg.sourcePath, targetPath: msg.targetPath, guard: msg.guard || "" },
                 );
                 if (result) {
                   const doc = await vscode.workspace.openTextDocument(vscode.Uri.parse(result.uri));
@@ -620,6 +644,32 @@ function getWebviewHtml(webview: vscode.Webview, currentEngine: string): string 
           var stateStr = parts.slice(2).join(".");
           var statePath = stateStr.split(".");
           vscode.postMessage({ type: "selectState", className: className, stateMachine: stateMachine, statePath: statePath });
+        }
+        return;
+      }
+
+      // Transition clicks: Action.transitionClicked("Light*^*status*^*turnOn*^*Off*^*On*^*")
+      var transMatch = href.match(/Action\\.transitionClicked\\("([^"]+)"\\)/);
+      if (transMatch && transMatch[1] !== "null") {
+        e.preventDefault();
+        // Parse *^* delimited payload: [className, stateMachine, event, source, target, guard?]
+        var tParts = transMatch[1].split("*^*").filter(function(s) { return s !== ""; });
+        if (tParts.length >= 5) {
+          var tClassName = tParts[0];
+          var tStateMachine = tParts[1];
+          var tEvent = tParts[2];
+          var tSource = tParts[3];
+          var tTarget = tParts[4];
+          var tGuard = tParts.length > 5 ? tParts[5].trim() : "";
+          vscode.postMessage({
+            type: "selectTransition",
+            className: tClassName,
+            stateMachine: tStateMachine,
+            event: tEvent,
+            sourcePath: tSource.split("."),
+            targetPath: tTarget.split("."),
+            guard: tGuard
+          });
         }
       }
     });
