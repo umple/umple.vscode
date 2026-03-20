@@ -527,11 +527,14 @@ function getWebviewHtml(webview: vscode.Webview, currentEngine: string): string 
   .html-diagram-content h1 { font-size: 16px; margin: 8px 0; }
   .html-diagram-content h2 { font-size: 14px; margin: 6px 0; }
   .html-diagram-content h3 { font-size: 13px; margin: 4px 0; }
-  .stale-banner {
-    padding: 12px 16px;
-    color: var(--vscode-descriptionForeground, #999);
+  #stale-indicator {
+    display: none;
+    padding: 4px 12px;
+    background: var(--vscode-editorWarning-background, rgba(204, 167, 0, 0.15));
+    color: var(--vscode-editorWarning-foreground, #cca700);
     font-style: italic;
-    font-size: 13px;
+    font-size: 12px;
+    border-bottom: 1px solid var(--vscode-panel-border);
   }
 </style>
 </head>
@@ -556,6 +559,7 @@ function getWebviewHtml(webview: vscode.Webview, currentEngine: string): string 
     <button id="save-svg" title="Save as SVG">Save SVG</button>
     <button id="save-png" title="Save as PNG">Save PNG</button>
   </div>
+  <div id="stale-indicator">Diagram may be out of date — current code has errors.</div>
   <div id="diagram-class" class="diagram-container">
     <div class="diagram-wrapper"><div class="loading">Generating diagram...</div></div>
   </div>
@@ -758,17 +762,8 @@ function getWebviewHtml(webview: vscode.Webview, currentEngine: string): string 
           renderSvg("diagram-" + k, msg.svgs[k] || "");
         }
       });
-      // Show/remove stale banner inside each diagram container after the SVG
-      document.querySelectorAll(".stale-banner").forEach(el => el.remove());
-      if (msg.stale) {
-        TAB_KEYS.forEach(k => {
-          var container = document.getElementById("diagram-" + k);
-          var banner = document.createElement("div");
-          banner.className = "stale-banner";
-          banner.textContent = "Diagram may be out of date \u2014 current code has errors.";
-          container.appendChild(banner);
-        });
-      }
+      // Show/hide fixed stale indicator (outside zoom transform)
+      document.getElementById("stale-indicator").style.display = msg.stale ? "block" : "none";
     });
 
     function renderSvg(containerId, svgString) {
