@@ -20,6 +20,7 @@
   "scripts": {
     "compile": "tsc -p .",
     "watch": "tsc -watch -p .",
+    "test": "npm run compile && node out/commands/diagramWorkspace.test.js",
     "vscode:prepublish": "npm run compile"
   },
   "contributes": {
