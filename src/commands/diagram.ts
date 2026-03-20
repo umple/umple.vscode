@@ -124,7 +124,7 @@ export function registerDiagramCommand(
         panel.webview.onDidReceiveMessage(async (msg) => {
           if (msg.type === "selectClass" && msg.name && lastFilePath) {
             const escapedName = msg.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-            const regex = new RegExp(`^\\s*class\\s+(${escapedName})\\b`, "m");
+            const regex = new RegExp(`^\\s*(?:associationClass|class|interface|trait)\\s+(${escapedName})\\b`, "m");
             const doc = await vscode.workspace.openTextDocument(lastFilePath);
             const match = regex.exec(doc.getText());
             if (match) {
