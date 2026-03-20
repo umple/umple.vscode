@@ -6,6 +6,7 @@ import * as fs from "fs";
 import * as os from "os";
 import { checkJava } from "../utils/umpleSync";
 import { collectReachableUmpFiles, materializeTempWorkspace } from "./diagramWorkspace";
+import { getLanguageClient } from "../extension";
 
 let panel: vscode.WebviewPanel | undefined;
 let debounceTimer: ReturnType<typeof setTimeout> | undefined;
@@ -134,6 +135,30 @@ export function registerDiagramCommand(
                 selection: new vscode.Range(startPos, endPos),
                 viewColumn: vscode.ViewColumn.One,
               });
+            }
+            return;
+          }
+          if (msg.type === "selectState" && msg.className && msg.stateMachine && msg.statePath && lastFilePath) {
+            const lspClient = getLanguageClient();
+            if (lspClient) {
+              const uri = vscode.Uri.file(lastFilePath).toString();
+              try {
+                const result = await lspClient.sendRequest<{ uri: string; range: { start: { line: number; character: number }; end: { line: number; character: number } } } | null>(
+                  "umple/resolveStateLocation",
+                  { uri, className: msg.className, stateMachine: msg.stateMachine, statePath: msg.statePath },
+                );
+                if (result) {
+                  const doc = await vscode.workspace.openTextDocument(vscode.Uri.parse(result.uri));
+                  const startPos = new vscode.Position(result.range.start.line, result.range.start.character);
+                  const endPos = new vscode.Position(result.range.end.line, result.range.end.character);
+                  await vscode.window.showTextDocument(doc, {
+                    selection: new vscode.Range(startPos, endPos),
+                    viewColumn: vscode.ViewColumn.One,
+                  });
+                }
+              } catch {
+                // LSP request failed — no-op
+              }
             }
             return;
           }
@@ -561,15 +586,41 @@ function getWebviewHtml(webview: vscode.Webview, currentEngine: string): string 
       vscode.postMessage({ type: "filterChange", filter: e.target.value });
     });
 
-    // SVG click-to-select: intercept class node clicks in diagrams
+    // SVG click-to-select: intercept class and state clicks in diagrams
     document.addEventListener("click", function(e) {
-      var anchor = e.target.closest("a");
-      if (!anchor) return;
-      var href = anchor.getAttribute("xlink:href") || anchor.getAttribute("href") || "";
-      var match = href.match(/Action\\.selectClass\\("([^"]+)"\\)/);
-      if (match) {
+      // Find the closest <a> — works for both HTML and SVG anchors
+      var el = e.target;
+      while (el && el.tagName !== "a" && el.tagName !== "A" && el.localName !== "a") {
+        el = el.parentElement;
+      }
+      if (!el) return;
+      var href = el.getAttributeNS("http://www.w3.org/1999/xlink", "href")
+        || el.getAttribute("xlink:href")
+        || el.getAttribute("href")
+        || "";
+
+      // Class clicks: Action.selectClass("Person")
+      var classMatch = href.match(/Action\\.selectClass\\("([^"]+)"\\)/);
+      if (classMatch) {
         e.preventDefault();
-        vscode.postMessage({ type: "selectClass", name: match[1] });
+        vscode.postMessage({ type: "selectClass", name: classMatch[1] });
+        return;
+      }
+
+      // State clicks: Action.stateClicked("Light^*^status^*^Off")
+      var stateMatch = href.match(/Action\\.stateClicked\\("([^"]+)"\\)/);
+      if (stateMatch) {
+        e.preventDefault();
+        // Parse ^*^ delimited payload: [className, stateMachine, stateName...]
+        var parts = stateMatch[1].split("^*^");
+        if (parts.length >= 3) {
+          var className = parts[0];
+          var stateMachine = parts[1];
+          // Last part may be dotted (e.g., "Outer.Done")
+          var stateStr = parts.slice(2).join(".");
+          var statePath = stateStr.split(".");
+          vscode.postMessage({ type: "selectState", className: className, stateMachine: stateMachine, statePath: statePath });
+        }
       }
     });
 

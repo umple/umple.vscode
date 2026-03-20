@@ -17,6 +17,11 @@ import { registerDiagramCommand } from "./commands/diagram";
 let client: LanguageClient | undefined;
 let languageStatusBar: vscode.StatusBarItem | undefined;
 
+/** Get the language client for custom LSP requests (used by diagram click-to-select). */
+export function getLanguageClient(): LanguageClient | undefined {
+  return client;
+}
+
 const GENERATE_LANGUAGES = ["Java", "Php", "Ruby", "Python", "Cpp", "RTCpp", "Sql"];
 
 function updateLanguageStatusBar(): void {
