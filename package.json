@@ -2,7 +2,7 @@
   "name": "umple",
   "displayName": "Umple",
   "description": "Language server for the Umple modeling language",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "publisher": "digized",
   "icon": "images/icon.png",
   "repository": {
