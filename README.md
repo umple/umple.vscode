@@ -34,18 +34,18 @@ Generate target language code from Umple source.
 
 ### Diagrams
 
-View UML diagrams generated from your Umple model.
+View diagrams (UML and others) generated from your Umple model.
 
 - **Command:** `Umple: Show Diagram` or `Cmd+Shift+U` (`Ctrl+Shift+U` on Windows/Linux)
 - **9 diagram types** in a dropdown selector:
   - UML Class Diagram
   - Class + Trait Diagram
-  - Entity-Relationship Diagram
-  - UML State Machine Diagram
-  - Feature Diagram
-  - UML Instance Diagram
-  - State Tables
-  - Event Sequence
+  - Entity-Relationship Diagram (equivalent to the class diagram)
+  - UML State Machine Diagram (if any state machines are present)
+  - Feature Diagram (if any mixsets are specified and activated with a [require statement](https://cruise.umple.org/umple/RequireStatement.html))
+  - UML Instance Diagram (random; each time it is generated, different instances appear)
+  - State Tables (equivalent content to the state machine diagram, but different format)
+  - Event Sequence (random; each time it is generated a new sequence is created)
   - Metrics
 - **Click-to-select:** Click classes, traits, interfaces, states, or transitions in the diagram to jump to their source location
 - **Layout engine:** Choose between dot, circo, neato, fdp, and osage (configurable via `umple.diagramLayout` setting or the in-panel dropdown)
