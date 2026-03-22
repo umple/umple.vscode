@@ -4,6 +4,8 @@ A VS Code extension for the [Umple](https://www.umple.org) modeling language. Pr
 
 Umple enables textual description of data models (class diagrams) and state models (finite state machines) with embedded code in Java, Python, C++ and other languages, along with generation of high quality code in those languages. Umple enables extensive analysis of models, as well as generation of diagrams, example data and many other outputs. Special features of Umple include specification of product lines (using mixsets), code injection (aspects), code snippet management (traits) and so on. Umple can scale to systems of any size, but its codebase will always be much smaller than software written directly in target languages due to Umple eliminating much boilerplate code. Umple can complement LLM-generation of code: You can arrange for your AI to generate Umple.
 
+[This plugin is listed in the VSCode Marketplace](https://marketplace.visualstudio.com/items?itemName=digized.umple)
+
 ## Features of the Umple Plugin
 
 ### Language Intelligence (via LSP)
