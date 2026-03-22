@@ -32,18 +32,18 @@ Generate target language code from Umple source.
 - **Status bar:** Shows the current target language (e.g., `Umple: Java`) — click to switch. Only visible when editing `.ump` files.
 - **Output:** Results appear in the "Umple" output channel with parsed errors and warnings
 
-### UML Diagrams
+### Diagrams
 
 View UML diagrams generated from your Umple model.
 
 - **Command:** `Umple: Show Diagram` or `Cmd+Shift+U` (`Ctrl+Shift+U` on Windows/Linux)
 - **9 diagram types** in a dropdown selector:
-  - Class Diagram
+  - UML Class Diagram
   - Class + Trait Diagram
   - Entity-Relationship Diagram
-  - State Machine Diagram
+  - UML State Machine Diagram
   - Feature Diagram
-  - Instance Diagram
+  - UML Instance Diagram
   - State Tables
   - Event Sequence
   - Metrics
