@@ -21,7 +21,8 @@
     "compile": "tsc -p .",
     "watch": "tsc -watch -p .",
     "test": "npm run compile && node out/commands/diagramWorkspace.test.js",
-    "vscode:prepublish": "npm run compile"
+    "vscode:prepublish": "npm run compile",
+    "prepublishOnly": "rm -f package-lock.json && npm install"
   },
   "contributes": {
     "commands": [
