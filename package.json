@@ -2,7 +2,7 @@
   "name": "umple",
   "displayName": "Umple",
   "description": "Language server for the Umple modeling language",
-  "version": "2.4.1",
+  "version": "2.4.2",
   "publisher": "digized",
   "icon": "images/icon.png",
   "repository": {
@@ -136,7 +136,7 @@
   },
   "dependencies": {
     "@viz-js/viz": "^3.24.0",
-    "umple-lsp-server": "*",
+    "umple-lsp-server": "file:../umple-lsp/packages/server",
     "vscode-languageclient": "^9.0.1"
   },
   "devDependencies": {
