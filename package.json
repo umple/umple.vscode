@@ -136,7 +136,7 @@
   },
   "dependencies": {
     "@viz-js/viz": "^3.24.0",
-    "umple-lsp-server": "file:../umple-lsp/packages/server",
+    "umple-lsp-server": "file:../umple-lsp/packages/server/umple-lsp-server-0.4.3.tgz",
     "vscode-languageclient": "^9.0.1"
   },
   "devDependencies": {

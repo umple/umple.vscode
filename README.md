@@ -81,7 +81,7 @@ An Umple logo button appears in the editor title bar when editing `.ump` files. 
 
 ## Requirements
 
-- **Node.js 18+**
+- **Node.js 20+** (tested on 20 and 23)
 - **Java 11+** (optional — only needed for diagnostics, compilation, and diagrams)
 
 ## Installation
@@ -89,9 +89,23 @@ An Umple logo button appears in the editor title bar when editing `.ump` files. 
 Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=digized.umple), or build from source:
 
 ```bash
+# Side-by-side checkout: this repo currently pins umple-lsp-server to a local
+# tarball produced by `npm pack` in the umple-lsp monorepo. So you also need
+# umple-lsp cloned as a sibling.
+git clone https://github.com/umple/umple-lsp.git
 git clone https://github.com/umple/umple.vscode.git
-cd umple.vscode
-npm install      # automatically downloads umple-lsp-server from npm
+
+# Build the server first and pack it
+cd umple-lsp
+npm install
+npm run compile
+cd packages/server
+npm pack            # produces umple-lsp-server-X.Y.Z.tgz
+
+# Then build the extension. package.json's `umple-lsp-server` dep points at
+# the .tgz path; if you packed a new version, edit package.json to match.
+cd ../../../umple.vscode
+npm install
 npm run compile
 ```
 
@@ -100,6 +114,8 @@ To package as `.vsix`:
 ```bash
 npx @vscode/vsce package
 ```
+
+**Alternative**: change the `umple-lsp-server` dep in `package.json` from the `file:` tarball path to a registry version like `^0.4.3`, then `npm install` pulls from npm. Cleaner long-term; requires the matching server version already published.
 
 ## Configuration
 
