@@ -308,6 +308,10 @@ const DIAGRAM_TYPES: DiagramType[] = [
   { key: "stateTables", label: "State Tables", generator: "StateTables", format: "html" },
   { key: "eventSequence", label: "Event Sequence", generator: "EventSequence", format: "html" },
   { key: "metrics", label: "Metrics", generator: "SimpleMetrics", format: "html" },
+  // Special view from UmpleOnline (compiler_config.php:357 — html:PlainRequirementsDoc).
+  // Generates a plain requirements document for files declaring `req` blocks; class-only
+  // models still produce a valid (degenerate) HTML doc.
+  { key: "plainReqDoc", label: "Plain Requirements Doc", generator: "PlainRequirementsDoc", format: "html" },
 ];
 
 async function updateDiagram(
@@ -585,6 +589,9 @@ function getWebviewHtml(webview: vscode.Webview, currentEngine: string): string 
     <div class="diagram-wrapper"><div class="loading">Generating...</div></div>
   </div>
   <div id="diagram-metrics" class="diagram-container" style="display:none">
+    <div class="diagram-wrapper"><div class="loading">Generating...</div></div>
+  </div>
+  <div id="diagram-plainReqDoc" class="diagram-container" style="display:none">
     <div class="diagram-wrapper"><div class="loading">Generating...</div></div>
   </div>
   <div id="offscreen-stage" style="position:absolute;top:0;left:0;visibility:hidden;pointer-events:none;z-index:-1;overflow:hidden;"></div>
