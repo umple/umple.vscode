@@ -3,6 +3,18 @@ import * as path from "path";
 
 export const MAX_IMPORTED_FILES = 100;
 const USE_FILE_REGEX = /^\s*use\s+([^"\s;][^;]*?\.ump)\s*;?\s*$/gm;
+export type DiagramContentMap = ReadonlyMap<string, string>;
+
+function normalizeFilePath(filePath: string): string {
+  return path.resolve(filePath);
+}
+
+function getOverlayContent(
+  contentByPath: DiagramContentMap | undefined,
+  filePath: string,
+): string | undefined {
+  return contentByPath?.get(normalizeFilePath(filePath));
+}
 
 /**
  * Extract unquoted `use X.ump;` file import paths from Umple source text.
@@ -26,11 +38,11 @@ export function extractFileUsePaths(text: string): string[] {
  */
 export function collectReachableUmpFiles(
   entryFile: string,
-  entryContent?: string,
+  contentByPath?: DiagramContentMap,
 ): { files: Set<string>; truncated: boolean } {
   const visited = new Set<string>();
-  const queue: Array<{ file: string; content?: string }> = [
-    { file: path.resolve(entryFile), content: entryContent },
+  const queue: Array<{ file: string }> = [
+    { file: normalizeFilePath(entryFile) },
   ];
   let truncated = false;
 
@@ -42,8 +54,9 @@ export function collectReachableUmpFiles(
     visited.add(absPath);
 
     let text: string;
-    if (item.content !== undefined) {
-      text = item.content;
+    const overlayContent = getOverlayContent(contentByPath, absPath);
+    if (overlayContent !== undefined) {
+      text = overlayContent;
     } else {
       try { text = fs.readFileSync(absPath, "utf8"); } catch { continue; }
     }
@@ -51,7 +64,10 @@ export function collectReachableUmpFiles(
     const usePaths = extractFileUsePaths(text);
     for (const usePath of usePaths) {
       const resolved = path.resolve(path.dirname(absPath), usePath);
-      if (!visited.has(resolved) && fs.existsSync(resolved)) {
+      if (
+        !visited.has(resolved) &&
+        (fs.existsSync(resolved) || getOverlayContent(contentByPath, resolved) !== undefined)
+      ) {
         queue.push({ file: resolved });
       }
     }
@@ -85,7 +101,7 @@ export function findCommonAncestor(paths: string[]): string {
 export function materializeTempWorkspace(
   tmpDir: string,
   rootFile: string,
-  rootContent: string | undefined,
+  contentByPath: DiagramContentMap | undefined,
   reachableFiles: Set<string>,
 ): string {
   const allPaths = Array.from(reachableFiles);
@@ -95,8 +111,9 @@ export function materializeTempWorkspace(
     const relPath = path.relative(ancestor, absFile);
     const destPath = path.join(tmpDir, relPath);
     fs.mkdirSync(path.dirname(destPath), { recursive: true });
-    if (absFile === path.resolve(rootFile) && rootContent !== undefined) {
-      fs.writeFileSync(destPath, rootContent);
+    const overlayContent = getOverlayContent(contentByPath, absFile);
+    if (overlayContent !== undefined) {
+      fs.writeFileSync(destPath, overlayContent);
     } else {
       try { fs.copyFileSync(absFile, destPath); } catch {}
     }

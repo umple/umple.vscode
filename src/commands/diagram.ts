@@ -5,7 +5,7 @@ import * as crypto from "crypto";
 import * as fs from "fs";
 import * as os from "os";
 import { checkJava } from "../utils/umpleSync";
-import { collectReachableUmpFiles, materializeTempWorkspace } from "./diagramWorkspace";
+import { collectReachableUmpFiles, DiagramContentMap, materializeTempWorkspace } from "./diagramWorkspace";
 import { getLanguageClient } from "../extension";
 
 let panel: vscode.WebviewPanel | undefined;
@@ -15,6 +15,41 @@ let lastFilePath: string | undefined;
 let lastGoodSvgs: Record<string, string> = {};
 let lastGoodFilePath: string | undefined;
 let lastFilter = "*";
+
+function getOpenUmpleDocumentContents(): Map<string, string> {
+  const contents = new Map<string, string>();
+  for (const document of vscode.workspace.textDocuments) {
+    if (document.languageId === "umple" && document.uri.scheme === "file") {
+      contents.set(path.resolve(document.uri.fsPath), document.getText());
+    }
+  }
+  return contents;
+}
+
+function isReachableDiagramDocument(document: vscode.TextDocument): boolean {
+  if (!lastFilePath || document.languageId !== "umple" || document.uri.scheme !== "file") {
+    return false;
+  }
+  const { files } = collectReachableUmpFiles(lastFilePath, getOpenUmpleDocumentContents());
+  return files.has(path.resolve(document.uri.fsPath));
+}
+
+function scheduleDiagramUpdate(
+  serverDir: string,
+  ensureJarAvailable: (promptMessage: string, passive?: boolean) => Promise<boolean>,
+  delayMs: number,
+): void {
+  if (debounceTimer) clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(async () => {
+    if (!lastFilePath || !checkJava()) return;
+    const jarReady = await ensureJarAvailable(
+      "Diagram generation requires umplesync.jar, but it is missing. Download it now?",
+      true,
+    );
+    if (!jarReady) return;
+    await updateDiagram(lastFilePath, serverDir);
+  }, delayMs);
+}
 
 // Parse filter input using UmpleOnline tokenization rules (compiler.php:152-209)
 const GV_SUBOPTIONS = new Set([
@@ -195,14 +230,7 @@ export function registerDiagramCommand(
           if (msg.type === "filterChange") {
             lastFilter = msg.filter ?? "*";
             if (lastFilePath) {
-              const doc = vscode.workspace.textDocuments.find(
-                d => d.uri.fsPath === lastFilePath && d.languageId === "umple"
-              );
-              if (doc?.isDirty) {
-                void updateDiagram(lastFilePath!, serverDir, doc.getText());
-              } else {
-                void updateDiagram(lastFilePath!, serverDir);
-              }
+              void updateDiagram(lastFilePath, serverDir);
             }
             return;
           }
@@ -239,37 +267,16 @@ export function registerDiagramCommand(
   // Live-regenerate diagram on edit (debounced, no auto-save — uses temp file)
   context.subscriptions.push(
     vscode.workspace.onDidChangeTextDocument((e) => {
-      if (!panel || e.document.languageId !== "umple") return;
-      if (e.document.uri.fsPath !== lastFilePath) return;
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(async () => {
-        if (!checkJava()) return;
-        const jarReady = await ensureJarAvailable(
-          "Diagram generation requires umplesync.jar, but it is missing. Download it now?",
-          true,
-        );
-        if (!jarReady) return;
-        // Pass editor content directly — no disk save needed
-        await updateDiagram(e.document.uri.fsPath, serverDir, e.document.getText());
-      }, 1500);
+      if (!panel || !isReachableDiagramDocument(e.document)) return;
+      scheduleDiagramUpdate(serverDir, ensureJarAvailable, 1500);
     })
   );
 
   // Also regenerate on save (from disk, covers external changes)
   context.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument((doc) => {
-      if (!panel || doc.languageId !== "umple") return;
-      if (doc.uri.fsPath !== lastFilePath) return;
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(async () => {
-        if (!checkJava()) return;
-        const jarReady = await ensureJarAvailable(
-          "Diagram generation requires umplesync.jar, but it is missing. Download it now?",
-          true,
-        );
-        if (!jarReady) return;
-        await updateDiagram(doc.uri.fsPath, serverDir);
-      }, 500);
+      if (!panel || !isReachableDiagramDocument(doc)) return;
+      scheduleDiagramUpdate(serverDir, ensureJarAvailable, 500);
     })
   );
 
@@ -280,15 +287,7 @@ export function registerDiagramCommand(
       if (e.affectsConfiguration("umple.diagramLayout")) {
         const engine = vscode.workspace.getConfiguration("umple").get<string>("diagramLayout", "dot");
         panel.webview.postMessage({ type: "setLayout", engine });
-        // Use in-memory content if editor is dirty (preserves live-preview state)
-        const doc = vscode.workspace.textDocuments.find(
-          d => d.uri.fsPath === lastFilePath && d.languageId === "umple"
-        );
-        if (doc?.isDirty) {
-          updateDiagram(lastFilePath!, serverDir, doc.getText());
-        } else {
-          updateDiagram(lastFilePath!, serverDir);
-        }
+        updateDiagram(lastFilePath, serverDir);
       }
     })
   );
@@ -317,7 +316,7 @@ const DIAGRAM_TYPES: DiagramType[] = [
 async function updateDiagram(
   filePath: string,
   serverDir: string,
-  content?: string,
+  contentByPath: DiagramContentMap = getOpenUmpleDocumentContents(),
 ): Promise<void> {
   if (!panel) return;
 
@@ -325,11 +324,11 @@ async function updateDiagram(
 
   // Build temp workspace with reachable use-closure (handles cross-directory imports)
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "umple-diagram-"));
-  const { files: reachableFiles, truncated } = collectReachableUmpFiles(filePath, content);
+  const { files: reachableFiles, truncated } = collectReachableUmpFiles(filePath, contentByPath);
   if (truncated) {
     console.warn("Diagram: import closure exceeded limit, some imports may be missing");
   }
-  const tmpFile = materializeTempWorkspace(tmpDir, filePath, content, reachableFiles);
+  const tmpFile = materializeTempWorkspace(tmpDir, filePath, contentByPath, reachableFiles);
 
   try {
     // Parse filter input into -u and -s args

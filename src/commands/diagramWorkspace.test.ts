@@ -38,6 +38,12 @@ function cleanup(dir: string) {
   fs.rmSync(dir, { recursive: true, force: true });
 }
 
+function contentOverlay(entries: Record<string, string>): Map<string, string> {
+  return new Map(
+    Object.entries(entries).map(([filePath, content]) => [path.resolve(filePath), content]),
+  );
+}
+
 // Find umplesync.jar for integration tests
 const JAR_PATH = path.resolve(__dirname, "..", "..", "node_modules", "umple-lsp-server", "umplesync.jar");
 const hasJar = fs.existsSync(JAR_PATH);
@@ -158,9 +164,27 @@ test("multi-level chain", () => {
 
 test("in-memory content followed", () => {
   const root = mkFixture({ "helper.ump": "class Helper {}" });
-  const { files } = collectReachableUmpFiles(path.join(root, "main.ump"), "use helper.ump;\nclass Main {}");
+  const mainPath = path.join(root, "main.ump");
+  const { files } = collectReachableUmpFiles(mainPath, contentOverlay({
+    [mainPath]: "use helper.ump;\nclass Main {}",
+  }));
   const names = Array.from(files).map(f => path.basename(f));
   assert.ok(names.includes("helper.ump"), "should include helper.ump");
+  cleanup(root);
+});
+
+test("in-memory imported content can add transitive imports", () => {
+  const root = mkFixture({
+    "main.ump": "use helper.ump;\nclass Main {}",
+    "helper.ump": "class Helper {}",
+    "extra.ump": "class Extra {}",
+  });
+  const helperPath = path.join(root, "helper.ump");
+  const { files } = collectReachableUmpFiles(path.join(root, "main.ump"), contentOverlay({
+    [helperPath]: "use extra.ump;\nclass Helper {}",
+  }));
+  const names = Array.from(files).map(f => path.basename(f)).sort();
+  assert.deepStrictEqual(names, ["extra.ump", "helper.ump", "main.ump"]);
   cleanup(root);
 });
 
@@ -208,9 +232,26 @@ test("cross-directory preserves relative structure", () => {
 test("in-memory content written instead of disk", () => {
   const root = mkFixture({ "A.ump": "class A { original; }" });
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "umple-tw-"));
-  const { files } = collectReachableUmpFiles(path.join(root, "A.ump"), "class A { edited; }");
-  const tmpFile = materializeTempWorkspace(tmpDir, path.join(root, "A.ump"), "class A { edited; }", files);
+  const filePath = path.join(root, "A.ump");
+  const contents = contentOverlay({ [filePath]: "class A { edited; }" });
+  const { files } = collectReachableUmpFiles(filePath, contents);
+  const tmpFile = materializeTempWorkspace(tmpDir, filePath, contents, files);
   assert.strictEqual(fs.readFileSync(tmpFile, "utf8"), "class A { edited; }");
+  cleanup(root); cleanup(tmpDir);
+});
+
+test("in-memory imported content written instead of disk", () => {
+  const root = mkFixture({
+    "main.ump": "use helper.ump;\nclass Main {}",
+    "helper.ump": "class Helper { original; }",
+  });
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "umple-tw-"));
+  const helperPath = path.join(root, "helper.ump");
+  const contents = contentOverlay({ [helperPath]: "class Helper { edited; }" });
+  const { files } = collectReachableUmpFiles(path.join(root, "main.ump"), contents);
+  const tmpFile = materializeTempWorkspace(tmpDir, path.join(root, "main.ump"), contents, files);
+  const tmpHelperPath = path.join(path.dirname(tmpFile), "helper.ump");
+  assert.strictEqual(fs.readFileSync(tmpHelperPath, "utf8"), "class Helper { edited; }");
   cleanup(root); cleanup(tmpDir);
 });
 
