@@ -180,7 +180,8 @@ This extension is mostly VS Code glue. Features such as diagnostics, completion,
 Inlay hints are handled by VS Code's standard LSP client. No extension code is needed when the server advertises `textDocument/inlayHint`; users only need VS Code's `editor.inlayHints.enabled` setting to be on.
 
 Formatting is provided by the LSP server. It is conservative: it formats
-parse-clean Umple structure and does not format embedded target-language method
+parse-clean Umple structure, parser-visible structural commas, and already split
+multi-line list indentation. It does not format embedded target-language method
 or action bodies. Formatter behavior should be changed in
 `umple-lsp/packages/server`, not in this VS Code wrapper.
 
