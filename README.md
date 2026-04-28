@@ -15,6 +15,7 @@ Umple enables textual description of data models (class diagrams) and state mode
 - **Find references** — Semantic reference search across all reachable files
 - **Rename** — Safe rename of symbols across all references
 - **Hover** — Contextual information for symbols
+- **Inlay hints** — Editor-only inferred type annotations for untyped attributes when VS Code inlay hints are enabled
 - **Document symbols** — Hierarchical outline of classes, state machines, states, attributes, methods
 - **Code completion** — Context-aware keyword and symbol suggestions
 - **Formatting** — AST-driven indent correction, arrow spacing, blank-line normalization
@@ -174,7 +175,9 @@ Then in the dev host: `Cmd+Shift+P` (or `Ctrl+Shift+P`) → **Developer: Reload 
 
 ### Where to make language-feature changes
 
-This extension is mostly VS Code glue. Features such as diagnostics, completion, hover, go-to-definition, references, rename, formatting, workspace symbols, code actions, and LSP semantic tokens live in `umple-lsp/packages/server`.
+This extension is mostly VS Code glue. Features such as diagnostics, completion, hover, inlay hints, go-to-definition, references, rename, formatting, workspace symbols, code actions, and LSP semantic tokens live in `umple-lsp/packages/server`.
+
+Inlay hints are handled by VS Code's standard LSP client. No extension code is needed when the server advertises `textDocument/inlayHint`; users only need VS Code's `editor.inlayHints.enabled` setting to be on.
 
 For highlighting:
 
@@ -198,7 +201,7 @@ In VS Code, run **Developer: Inspect Editor Tokens and Scopes** to distinguish T
 
 ## Architecture
 
-This extension is a thin client that launches the [Umple LSP server](https://github.com/umple/umple-lsp). The server handles all language intelligence (diagnostics, completion, go-to-definition, references, rename, hover, formatting, workspace symbols, code actions, and semantic tokens). The extension adds VS Code-specific features: compile command, diagram panel, snippets, and UI chrome.
+This extension is a thin client that launches the [Umple LSP server](https://github.com/umple/umple-lsp). The server handles all language intelligence (diagnostics, completion, go-to-definition, references, rename, hover, inlay hints, formatting, workspace symbols, code actions, and semantic tokens). The extension adds VS Code-specific features: compile command, diagram panel, snippets, and UI chrome.
 
 ```
 VS Code Extension (this repo)
@@ -207,7 +210,7 @@ VS Code Extension (this repo)
   |                 |
   |                 +-- tree-sitter (go-to-def, completion, references,
   |                                  rename, hover, formatting, symbols,
-  |                                  semantic tokens)
+  |                                  semantic tokens, inlay hints)
   |
   +-- Compile command --> umplesync.jar -generate <lang>
   |
