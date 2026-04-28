@@ -190,7 +190,7 @@ For highlighting:
 - VS Code uses this repo's TextMate grammar as the baseline coloring path.
 - The LSP server also advertises semantic tokens. Those are derived from `umple-lsp/packages/tree-sitter-umple/queries/highlights.scm` and mapped in `umple-lsp/packages/server/src/semanticTokens.ts`.
 - If a token is parsed correctly but colored incorrectly across editors, update `highlights.scm` and/or `semanticTokens.ts` in `umple-lsp`, then rebuild the server and reload the Extension Development Host.
-- Change this repo only when the VS Code wrapper needs different activation, commands, snippets, TextMate fallback scopes, settings, packaging, or server-launch wiring.
+- Change this repo only when the VS Code wrapper needs different activation, commands, snippets, TextMate fallback scopes, settings, packaging, or server-launch wiring. Current TextMate fallback scopes intentionally cover common LSP semantic-token gaps such as tracer directives, port declarations/connectors, test sequences, and UmpleOnline layout directives.
 
 Useful checks:
 
